@@ -1,42 +1,72 @@
 # esp-paper
 
-PlatformIO firmware driving a Waveshare 4.2" e-Paper Module (rev2.1, 400x300
-B/W) from an ESP32-S3-N16R8. See `README.md` for wiring and troubleshooting.
+Claude Code status + usage display: Waveshare 4.2" e-Paper (rev2.1, 400x300 B/W)
+on an ESP32-S3-N16R8, fed over MQTT by a Node bridge that merges Claude Code
+statusline data with hook events. See `README.md` for architecture and wiring.
 
-## Build
+## Build and verify
 
 ```
-pio run                              # default env (uc8176)
-pio run -e ssd1683                   # other panel variant
-pio run -t upload -t monitor         # flash and watch serial at 115200
+pio run                             # monitor env (default)
+pio run -e paneltest                # standalone panel test
+pio run -t upload -t monitor        # flash + serial at 115200
+node bridge/bridge.js status        # broker + daemon health
+node bridge/bridge.js demo          # push a fake state
 ```
 
-The `pio` CLI is at `~/.platformio/penv/Scripts/pio.exe` on this machine.
-A build from clean takes about a minute. Always build before reporting a
-firmware change as done — there is no hardware-in-the-loop test here, so
-compiling is the only automated check.
-
-## Layout
-
-- `src/main.cpp` — the whole application. Pin `#define`s and the panel-class
-  selection are at the top.
-- `platformio.ini` — one `[env]` base plus two per-panel envs that differ only
-  in a `-DEPD_PANEL_*` flag.
+`pio` is at `~/.platformio/penv/Scripts/pio.exe`. A clean build takes about a
+minute. There is no hardware-in-the-loop test, so **always build both envs
+before reporting a firmware change as done** — compiling is the only automated
+check. For bridge changes, `demo` plus a subscriber is the equivalent.
 
 ## Things that bite
 
-- **`board_build.arduino.memory_type = qio_opi` is load-bearing.** The N16R8
-  has octal PSRAM; any other value boot-loops before `setup()` runs, with no
-  serial output to explain why.
+### Firmware
+
+- **`board_build.arduino.memory_type = qio_opi` is load-bearing.** The N16R8 has
+  octal PSRAM; any other value boot-loops before `setup()` runs, with no serial
+  output to explain why.
 - **Avoid GPIO 26-37** for peripherals — flash and octal PSRAM use them. Also
   avoid 0, 3, 19, 20, 45, 46 (strapping and USB).
 - **Panel controller is ambiguous.** `rev2.1` is the driver board revision, not
-  the panel. UC8176 and SSD1683 both ship in this form factor and need
-  different GxEPD2 classes. If a display symptom looks like a driver problem,
-  try the other env before debugging further.
-- **`delay(2000)` at the top of `setup()`** is deliberate: the S3's USB CDC
-  port needs time to enumerate or the first prints are lost.
-- Always `display.hibernate()` when finished drawing — leaving the controller
-  powered causes ghosting and shortens panel life.
-- Panels are rated for roughly one refresh per 180 s. Don't add fast refresh
-  loops that would be left running.
+  the panel. UC8176 and SSD1683 both ship in this form factor and need different
+  GxEPD2 classes. Selected in `include/config.h`. If a symptom looks like a
+  driver problem, flip it before debugging further.
+- **PubSubClient's default buffer is 256 bytes** and silently truncates the state
+  snapshot. `setBufferSize(2048)` in `main.cpp` — don't remove it.
+- **`delay(2000)` at the top of `setup()`** is deliberate: the S3's USB CDC port
+  needs time to enumerate or the first prints are lost.
+- Panels are rated for roughly one refresh per 180 s. `src/ui.cpp` enforces this
+  with per-zone signatures and minimum intervals. **Any new screen content must
+  be added to both a `paint*` function and its matching `sig*` function** — a
+  field that isn't hashed will never trigger a repaint, and a field hashed at too
+  fine a resolution (e.g. seconds) will repaint constantly and wear the panel.
+
+### Bridge
+
+- **`statusline` mode must never throw and never block.** It runs on nearly every
+  message and its stdout *is* the user's status line. Every path is wrapped;
+  daemon sends are fire-and-forget with a 400 ms timeout.
+- `rate_limits` only exists for Claude.ai Pro/Max accounts and only after the
+  first API response in a session. Absent is normal, not an error — the panel
+  distinguishes unknown from zero, so don't default these to 0.
+- The daemon auto-spawns detached from the first client call. A second daemon
+  losing the port race exits quietly by design.
+- State is published **retained**, with a last-will of `offline`. Both matter:
+  retained makes ESP32 reboots recover instantly, the will stops a dead bridge
+  from leaving a convincing but stale screen.
+
+### Credentials
+
+`include/secrets.h` and `bridge/config.json` hold WiFi and broker credentials and
+are gitignored. The `.example` counterparts are committed. Never paste real
+values into committed files, docs, or commit messages.
+
+## Layout
+
+- `include/config.h` — panel selection, pins, layout constants, refresh policy
+- `src/ui.cpp` — zone rendering + repaint throttling (the tricky part)
+- `src/main.cpp` — WiFi, MQTT, loop
+- `src/paneltest.cpp` — bring-up test, excluded from the monitor build via
+  `build_src_filter`
+- `bridge/bridge.js` — single file, mode-dispatched on argv

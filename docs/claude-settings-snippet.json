@@ -1,0 +1,69 @@
+{
+  "_README": "Merge these two keys into ~/.claude/settings.json. Do not replace the whole file - it already has other settings. Adjust the absolute path if you move the repo. Forward slashes are fine on Windows.",
+
+  "statusLine": {
+    "type": "command",
+    "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" statusline",
+    "refreshInterval": 30
+  },
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" hook SessionStart",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" hook UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" hook Notification",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" hook Stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"F:/Software Development/esp-paper/bridge/bridge.js\" hook SessionEnd",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+
+  "_OPTIONAL_PreToolUse": "Adding PreToolUse shows which tool is running ('running Bash') but spawns node before EVERY tool call, adding roughly 100ms each. Only add it if you want that detail: \"PreToolUse\": [{\"matcher\": \"*\", \"hooks\": [{\"type\": \"command\", \"command\": \"node \\\"F:/Software Development/esp-paper/bridge/bridge.js\\\" hook PreToolUse\", \"timeout\": 5}]}]"
+}

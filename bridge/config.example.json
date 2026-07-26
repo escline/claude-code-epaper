@@ -1,0 +1,15 @@
+{
+  "mqtt": {
+    "url": "mqtt://192.168.1.10:1883",
+    "username": "",
+    "password": ""
+  },
+  "topics": {
+    "state": "claude/display/state",
+    "bridge": "claude/display/bridge"
+  },
+  "_comment_port": "localhost TCP port the statusline/hook clients send to",
+  "port": 8787,
+  "_comment_idle": "ms of silence after which a 'working' status decays to 'idle'",
+  "idleAfterMs": 300000
+}

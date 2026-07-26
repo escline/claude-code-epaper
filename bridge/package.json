@@ -1,0 +1,15 @@
+{
+  "name": "claude-epaper-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Publishes Claude Code status and usage to MQTT for the e-paper display",
+  "main": "bridge.js",
+  "scripts": {
+    "daemon": "node bridge.js daemon",
+    "status": "node bridge.js status",
+    "demo": "node bridge.js demo"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1"
+  }
+}

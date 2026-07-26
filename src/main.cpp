@@ -1,193 +1,165 @@
-// Bring-up test for a Waveshare 4.2" e-Paper Module (rev2.1, 400x300 B/W)
-// on an ESP32-S3-N16R8, using GxEPD2 + Adafruit_GFX.
+// Claude Code status + usage display for a Waveshare 4.2" e-Paper panel on an
+// ESP32-S3-N16R8.
 //
-// Sequence on boot: full-refresh test pattern -> five partial-refresh updates
-// -> hibernate. Watch the serial monitor at 115200 for progress.
+// Subscribes to a retained MQTT topic published by the Node bridge in bridge/,
+// which merges Claude Code statusline data (5h / 7d rate limits, cost, context)
+// with hook events (working / needs-you / idle) into a single snapshot.
 //
-// ---------------------------------------------------------------------------
-// Wiring
+// Retained + last-will means a reboot repaints the correct state within a
+// second of reconnecting, and a dead bridge shows as OFFLINE rather than a
+// stale screen.
 //
-//   Module   ESP32-S3    Notes
-//   ------   --------    -------------------------------------------------
-//   VCC      3V3         rev2.1 has level shifting, but 3.3V is correct here
-//   GND      GND
-//   DIN      GPIO 11     SPI MOSI
-//   CLK      GPIO 12     SPI SCK
-//   CS       GPIO 10     chip select, active low
-//   DC       GPIO 9      data / command
-//   RST      GPIO 8      reset, active low
-//   BUSY     GPIO 7      busy, driven by the panel
-//
-// These avoid GPIO 26-37 (the N16R8 uses those for its 16 MB flash and 8 MB
-// octal PSRAM) and the strapping / USB pins 0, 3, 19, 20, 45, 46.
-// ---------------------------------------------------------------------------
+// See README.md for wiring.
 
-#include <Arduino.h>
-#include <SPI.h>
-#include <GxEPD2_BW.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
-#include <Fonts/FreeMonoBold18pt7b.h>
+#include "claude_state.h"
+#include "config.h"
+#include "ui.h"
 
-#define EPD_MOSI 11
-#define EPD_SCK  12
-#define EPD_CS   10
-#define EPD_DC    9
-#define EPD_RST   8
-#define EPD_BUSY  7
+#include <ArduinoJson.h>
+#include <PubSubClient.h>
+#include <WiFi.h>
+#include <time.h>
 
-// Which controller is on the panel. Set via -D flags in platformio.ini: if the
-// pattern below comes out blank, ghosted or scrambled, switch to the other one.
-#if defined(EPD_PANEL_SSD1683)
-using EpdPanel = GxEPD2_420_GDEY042T81;
-static const char PANEL_NAME[] = "GDEY042T81 / SSD1683";
-#elif defined(EPD_PANEL_UC8176)
-using EpdPanel = GxEPD2_420;
-static const char PANEL_NAME[] = "GDEW042T2 / UC8176";
+#if __has_include("secrets.h")
+#include "secrets.h"
 #else
-#error "Define EPD_PANEL_UC8176 or EPD_PANEL_SSD1683 in platformio.ini"
+#error "Copy include/secrets.h.example to include/secrets.h and fill it in"
 #endif
 
-// Page buffer holds the whole 400x300 frame (15 kB) — ample on an S3.
-GxEPD2_BW<EpdPanel, EpdPanel::HEIGHT> display(
-    EpdPanel(EPD_CS, EPD_DC, EPD_RST, EPD_BUSY));
+static WiFiClient net;
+static PubSubClient mqtt(net);
 
-// Draw `text` horizontally centred, with `y` as the text baseline.
-static void printCentered(const char *text, int16_t y)
-{
-  int16_t bx, by;
-  uint16_t bw, bh;
-  display.getTextBounds(text, 0, y, &bx, &by, &bw, &bh);
-  display.setCursor((display.width() - bw) / 2 - bx, y);
-  display.print(text);
+static uint32_t lastStateMs = 0;
+static uint32_t lastReconnectAttempt = 0;
+static uint32_t reconnectBackoff = 1000;
+static bool bridgeOnline = true;
+
+static void onMessage(char *topic, byte *payload, unsigned int len) {
+  if (!strcmp(topic, TOPIC_BRIDGE)) {
+    bridgeOnline = (len >= 6 && !strncmp((const char *)payload, "online", 6));
+    Serial.printf("[mqtt] bridge %s\n", bridgeOnline ? "online" : "offline");
+    if (!bridgeOnline) {
+      ClaudeState s;
+      s.status = ClaudeStatus::Offline;
+      strncpy(s.detail, "bridge not running", sizeof(s.detail) - 1);
+      uiSetState(s);
+    }
+    return;
+  }
+
+  if (strcmp(topic, TOPIC_STATE))
+    return;
+
+  ClaudeState s;
+  if (!parseClaudeState((const char *)payload, len, s)) {
+    Serial.println("[mqtt] state payload was not valid JSON, ignoring");
+    return;
+  }
+  lastStateMs = millis();
+  uiSetState(s);
+  Serial.printf("[mqtt] state: %s  5h=%d%%  7d=%d%%\n", statusLabel(s.status),
+                s.session.valid ? s.session.usedPct : -1,
+                s.week.valid ? s.week.usedPct : -1);
 }
 
-// Full-panel pattern. Every element is a check: the nested borders and corner
-// blocks prove the controller addresses all four edges, and the checkerboard
-// plus line ramp expose byte-order or line-pitch mismatches from a wrong panel
-// class — those show up as smearing or diagonal tearing rather than clean squares.
-static void drawTestPattern()
-{
-  display.setFullWindow();
-  display.firstPage();
-  do
-  {
-    const int16_t w = display.width();
-    const int16_t h = display.height();
+static void connectWiFi() {
+  Serial.printf("[wifi] connecting to %s\n", WIFI_SSID);
+  uiSetBanner("Connecting", WIFI_SSID);
+  uiTick();
 
-    display.fillScreen(GxEPD_WHITE);
-    display.drawRect(0, 0, w, h, GxEPD_BLACK);
-    display.drawRect(3, 3, w - 6, h - 6, GxEPD_BLACK);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false); // keep MQTT push latency low
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-    const int16_t c = 22;
-    display.fillRect(8, 8, c, c, GxEPD_BLACK);
-    display.fillRect(w - 8 - c, 8, c, c, GxEPD_BLACK);
-    display.fillRect(8, h - 8 - c, c, c, GxEPD_BLACK);
-    display.fillRect(w - 8 - c, h - 8 - c, c, c, GxEPD_BLACK);
+  uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 30000) {
+    delay(250);
+  }
 
-    display.setTextColor(GxEPD_BLACK);
-    display.setFont(&FreeMonoBold18pt7b);
-    printCentered("ESP32-S3 e-Paper", 66);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("[wifi] connected, ip=%s rssi=%d\n",
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  } else {
+    Serial.println("[wifi] failed; will keep retrying in the background");
+    uiSetBanner("No WiFi", WIFI_SSID);
+  }
+}
 
-    display.setFont(&FreeMonoBold9pt7b);
-    printCentered(PANEL_NAME, 92);
+static bool connectMqtt() {
+  Serial.printf("[mqtt] connecting to %s:%d\n", MQTT_HOST, MQTT_PORT);
 
-    char line[48];
-    snprintf(line, sizeof(line), "%d x %d  full refresh", w, h);
-    printCentered(line, 112);
+  const char *user = strlen(MQTT_USER) ? MQTT_USER : nullptr;
+  const char *pass = strlen(MQTT_PASSWORD) ? MQTT_PASSWORD : nullptr;
 
-    // Checkerboard of 16px cells.
-    const int16_t bx = 44, by = 132, bs = 16;
-    for (int16_t row = 0; row < 4; row++)
-    {
-      for (int16_t col = 0; col < 9; col++)
-      {
-        if ((row + col) % 2 == 0)
-        {
-          display.fillRect(bx + col * bs, by + row * bs, bs, bs, GxEPD_BLACK);
-        }
+  // Our own last will, so anything else on the bus can see the panel drop off.
+  bool ok = mqtt.connect(MQTT_CLIENT_ID, user, pass, TOPIC_DEVICE, 0, true,
+                         "offline");
+  if (!ok) {
+    Serial.printf("[mqtt] connect failed, rc=%d\n", mqtt.state());
+    return false;
+  }
+
+  mqtt.publish(TOPIC_DEVICE, "online", true);
+  mqtt.subscribe(TOPIC_STATE);
+  mqtt.subscribe(TOPIC_BRIDGE);
+  Serial.println("[mqtt] connected and subscribed");
+
+  // The retained snapshot arrives on its own; show something until it does.
+  uiSetBanner("Waiting", "for Claude Code");
+  return true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000); // let the S3's USB CDC port enumerate
+  Serial.println("\n=== Claude Code e-Paper display ===");
+
+  uiBegin();
+  uiSetBanner("Starting", "");
+  uiTick();
+
+  connectWiFi();
+  configTzTime(TZ_POSIX, NTP_SERVER_1, NTP_SERVER_2);
+
+  // PubSubClient's default 256-byte buffer truncates the state snapshot.
+  mqtt.setBufferSize(2048);
+  mqtt.setKeepAlive(30);
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setCallback(onMessage);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.reconnect();
+    delay(500);
+    return;
+  }
+
+  if (!mqtt.connected()) {
+    uint32_t now = millis();
+    if (now - lastReconnectAttempt > reconnectBackoff) {
+      lastReconnectAttempt = now;
+      if (connectMqtt()) {
+        reconnectBackoff = 1000;
+      } else {
+        reconnectBackoff = min<uint32_t>(reconnectBackoff * 2, 30000);
+        uiSetBanner("No broker", MQTT_HOST);
       }
     }
-
-    // Vertical lines at widening pitch, to spot dropped columns.
-    int16_t x = w / 2 + 30;
-    for (int16_t gap = 1; gap <= 8 && x < w - 50; gap++)
-    {
-      display.fillRect(x, by, gap, bs * 4, GxEPD_BLACK);
-      x += gap * 2 + 2;
-    }
-
-    display.setFont(&FreeMonoBold9pt7b);
-    printCentered("partial refresh test below", 236);
-  }
-  while (display.nextPage());
-}
-
-// Redraw only the counter box. On a healthy panel this is fast and leaves the
-// rest of the image untouched.
-static void drawPartialCounter(int n)
-{
-  const int16_t bw = 200, bh = 34;
-  const int16_t bx = (display.width() - bw) / 2;
-  const int16_t by = 246;
-
-  display.setPartialWindow(bx, by, bw, bh);
-  display.firstPage();
-  do
-  {
-    display.fillScreen(GxEPD_WHITE);
-    display.drawRect(bx, by, bw, bh, GxEPD_BLACK);
-
-    char line[32];
-    snprintf(line, sizeof(line), "update %d of 5", n);
-    display.setTextColor(GxEPD_BLACK);
-    display.setFont(&FreeMonoBold9pt7b);
-    printCentered(line, by + 22);
-  }
-  while (display.nextPage());
-}
-
-void setup()
-{
-  Serial.begin(115200);
-  delay(2000); // let the USB CDC port enumerate before the first print
-  Serial.println("\n=== Waveshare 4.2\" e-Paper bring-up ===");
-  Serial.printf("Panel class: %s\n", PANEL_NAME);
-
-  // Remap the ESP32-S3's FSPI bus onto our pins. MISO is unused: the panel is
-  // write-only, so pass -1.
-  SPI.end();
-  SPI.begin(EPD_SCK, -1, EPD_MOSI, EPD_CS);
-
-  // (diag baud, initial reset, reset pulse ms, pulldown-first reset)
-  display.init(115200, true, 2, false);
-  Serial.printf("Init done: %d x %d\n", display.width(), display.height());
-
-  uint32_t t0 = millis();
-  drawTestPattern();
-  Serial.printf("Full refresh: %lu ms\n", millis() - t0);
-
-  if (display.epd2.hasPartialUpdate)
-  {
-    for (int i = 1; i <= 5; i++)
-    {
-      t0 = millis();
-      drawPartialCounter(i);
-      Serial.printf("Partial refresh %d: %lu ms\n", i, millis() - t0);
-      delay(1000);
-    }
-  }
-  else
-  {
-    Serial.println("Panel reports no partial update support; skipping.");
+  } else {
+    mqtt.loop();
   }
 
-  // Leaving an e-paper controller powered with a charged panel causes ghosting
-  // and shortens panel life. Hibernate draws ~1uA; the image persists.
-  display.hibernate();
-  Serial.println("Hibernating. Image should remain on screen.");
-}
+  // Belt and braces alongside the bridge's last will: if the broker itself
+  // vanishes we never receive the will, so fall back to a silence timer.
+  if (lastStateMs && (millis() - lastStateMs) > BRIDGE_STALE_MS) {
+    ClaudeState s;
+    s.status = ClaudeStatus::Offline;
+    strncpy(s.detail, "no updates", sizeof(s.detail) - 1);
+    uiSetState(s);
+    lastStateMs = 0;
+  }
 
-void loop()
-{
-  delay(10000);
+  uiTick();
+  delay(100);
 }
