@@ -86,6 +86,13 @@ P = {
     "usb_span_z": 11.0,
     "esp_shift_x": 12.0,      # board offset toward the USB wall
     "esp_fit": 0.4,           # clearance around the board in its cradle
+    # The board is carried on rails running outboard of its long edges, not on
+    # pillars under its corners: the Dupont housings plug onto the corner pins
+    # (GND and 3V3) and occupy exactly where corner pillars would stand.
+    "esp_rail_w": 3.0,
+    # How far the ledge reaches in under the PCB edge. Must stay clear of the
+    # housings, which start roughly 1.3mm in from the edge.
+    "esp_ledge": 1.2,
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
@@ -281,31 +288,29 @@ def build_back():
     ex = D["esp_x"]
     ey = D["esp_y"]
     post = D["esp_post_h"]
-    # Each corner gets a pillar plus an L bracket. Walls on only two sides
-    # would leave the board free to slide along its short axis.
-    br = 1.8
+    # Two rails outboard of the board's long edges. The board drops into the
+    # channel between them and lands on a thin ledge catching only the PCB
+    # edge; the rails retain it sideways. Everything is outside the board
+    # footprint except the ledge, so the Dupont housings hang free.
+    rw = P["esp_rail_w"]
+    lg = P["esp_ledge"]
     lip_h = P["esp_pcb_t"] + 1.5
-    zb = z0 - post - lip_h
     f = P["esp_fit"] / 2
-    for (px, py, sx, sy) in [
-        (ex - f, ey - f, 1, 1),
-        (ex + P["esp_l"] + f, ey - f, -1, 1),
-        (ex - f, ey + P["esp_w"] + f, 1, -1),
-        (ex + P["esp_l"] + f, ey + P["esp_w"] + f, -1, -1),
-    ]:
-        lid = lid.fuse(cyl(3.0, post, px, py, z0 - post))
-        # The brackets run 1mm past the base of the pillar. Meeting it exactly
-        # face to face unions two solids along coincident planes, which leaves
-        # the shape invalid; a real volumetric overlap does not.
-        bh = lip_h + 1.0
-        # Wall running along Y, blocking movement along the board's length.
-        lid = lid.fuse(box(br, 10.0, bh,
-                           px - br if sx > 0 else px,
-                           py if sy > 0 else py - 10.0, zb))
-        # Wall running along X, blocking movement across its width.
-        lid = lid.fuse(box(10.0, br, bh,
-                           px if sx > 0 else px - 10.0,
-                           py - br if sy > 0 else py, zb))
+    zf = z0 - post - P["esp_pcb_t"] - 1.5   # front face of the rails
+
+    for sy in (-1, 1):
+        inner = (ey - f) if sy < 0 else (ey + P["esp_w"] + f)
+        ry = inner - rw if sy < 0 else inner
+        lid = lid.fuse(box(P["esp_l"], rw, post + lip_h, ex, ry, zf))
+        # Ledge, kept thin in Z so only the PCB edge rests on it and the
+        # housings behind have room.
+        ly = inner if sy < 0 else inner - lg
+        lid = lid.fuse(box(P["esp_l"], lg, 2.0, ex, ly, z0 - post))
+
+    # End stop so the board cannot slide along its length. Only at the far end
+    # - the USB ports have to reach the opening at the other.
+    lid = lid.fuse(box(2.0, P["esp_w"] + P["esp_fit"] + 2 * rw, post + lip_h,
+                       ex - 2.0, ey - f - rw, zf))
 
     # Cable slot so the display ribbon can pass the board.
     lid = lid.cut(box(P["cable_slot_w"], P["cable_slot_h"], P["lid_t"] + 2,
@@ -382,28 +387,30 @@ def build_fit_display():
 
 
 def build_fit_cradle():
-    """One short end of the ESP32 cradle: both pillars and their brackets.
+    """A section of the ESP32 cradle rails, at full height.
 
-    Pillars are the real height, not a token stub. At 8mm the headers alone
-    hung lower than the pillars and the board could not seat at all, so the
-    part tested nothing it was meant to. At full height it also checks the one
-    dimension nothing else can: whether the Dupont housings and the wires
-    turning out of them actually fit in esp_stack_h.
+    Full height matters: at a token 8mm the headers alone hung lower than the
+    supports and the board could not seat, so the part tested nothing. At the
+    real height it also covers the one dimension nothing else can - whether the
+    Dupont housings, and the wires turning out of them, fit in esp_stack_h.
     """
-    w = 44.0
+    w = 40.0
     base = 3.0
     post = D["esp_post_h"]
-    c = box(w, FIT_H, base)
-
-    bx = 16.0
-    by0 = (FIT_H - P["esp_w"]) / 2
-    br = 1.8
+    rw = P["esp_rail_w"]
+    lg = P["esp_ledge"]
     lip_h = P["esp_pcb_t"] + 1.5
     f = P["esp_fit"] / 2
-    for (py, sy) in [(by0 - f, 1), (by0 + P["esp_w"] + f, -1)]:
-        c = c.fuse(cyl(3.0, post, bx, py, base))
-        c = c.fuse(box(10.0, br, lip_h + 1.0, bx - 5.0,
-                       py - br if sy > 0 else py, base + post - 1.0))
+
+    by0 = (FIT_H - P["esp_w"]) / 2
+    c = box(w, FIT_H, base)
+
+    for sy in (-1, 1):
+        inner = (by0 - f) if sy < 0 else (by0 + P["esp_w"] + f)
+        ry = inner - rw if sy < 0 else inner
+        c = c.fuse(box(w, rw, post + lip_h, 0, ry, base))
+        ly = inner if sy < 0 else inner - lg
+        c = c.fuse(box(w, lg, 2.0, 0, ly, base + post - 2.0))
 
     return c.removeSplitter()
 

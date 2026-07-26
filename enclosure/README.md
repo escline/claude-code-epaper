@@ -42,7 +42,7 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 | `front-shell` | 123.4 × 106.9 × 30.5 mm | **Face down** (bezel on the plate) |
 | `back-shell` | 123.4 × 123.5 × 51.0 mm | **Angled wedge face down** |
 | `test-display` | 56 × 50 × 13.9 mm | Flat, as oriented |
-| `test-cradle` | 44 × 50 × 25.6 mm | Flat, as oriented |
+| `test-cradle` | 40 × 50 × 25.6 mm | Flat, as oriented |
 
 Neither shell needs supports in the orientation above. Face-down printing also
 puts the plate's finish on the bezel, which is the surface you look at.
@@ -82,19 +82,29 @@ An L-shaped rail with a bezel lip and a screw boss. It reproduces the
 
 ### test-cradle
 
-Two pillars with L brackets, at the **real** 19.5 mm height.
+A section of the two rails, at the **real** 19.5 mm height.
 
-4. **Cradle width.** Lower the ESP32's **short end** between the two brackets so
-   the PCB rests on both pillar tops. Only one end is supported — that is
-   expected. It should drop in with barely perceptible side play. Needing force
+4. **Cradle width.** Drop the ESP32 into the channel between the rails. It
+   should land on the ledges with barely perceptible side play. Needing force
    means `esp_w` is short.
-5. **Stack depth.** With the board seated, the Dupont housings hang in the gap
-   between the pillars. Check they clear the base plate, and that the wires can
-   turn out sideways without being pinched. This is the check for
-   `esp_stack_h` — get it wrong and the back shell will not close.
-6. **Pillar collision.** The pillars sit under the board's corners, which is
-   also where the header rows run. Make sure no Dupont housing fouls a pillar.
-   If one does, the pillars need moving inboard or replacing with edge rails.
+5. **Ledge clearance.** The ledge reaches 1.2 mm in under the PCB edge. Check
+   it catches the board without fouling any Dupont housing — the housings start
+   roughly 1.3 mm in from the edge, so this is the tightest fit in the design.
+6. **Stack depth.** With the board seated, the housings hang in the open gap
+   under it. Check they clear the base plate, and that the wires can turn out
+   sideways without being pinched. This is the check for `esp_stack_h` — get it
+   wrong and the back shell will not close.
+
+### Why rails and not corner pillars
+
+The first cradle stood four pillars under the board's corners. The Dupont
+housings plug onto the corner pins — GND and 3V3 — so the pillars and the
+connectors wanted the same space. Moving the pillars inboard does not help
+either; connectors are scattered along both header rows.
+
+Rails run *outboard* of the board's long edges, so the entire support is
+outside the board's footprint except for a 1.2 mm ledge catching the PCB edge.
+Everything hanging below the board is then in free air.
 
 ### What the test parts do not cover
 
