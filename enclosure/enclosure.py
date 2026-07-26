@@ -70,7 +70,9 @@ P = {
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
-    "margin": 9.0,            # bezel border, sized to clear the screw bosses
+    # Floor only - the real bezel border is derived so it always clears the
+    # screw bosses, whatever size the inserts make them.
+    "margin_min": 9.0,
     "bezel_t": 2.0,           # front face thickness
     "wall": 3.0,
     "lid_t": 2.5,
@@ -80,8 +82,14 @@ P = {
     "cavity_d_min": 20.0,
 
     # --- screws ------------------------------------------------------------
-    "boss_od": 7.0,
-    "boss_pilot": 2.5,        # M3 self-tapping pilot
+    # M3 brass heat-set inserts rather than self-tapping into plastic. Tapping
+    # a printed boss splits it about as often as it holds, and this case gets
+    # opened every time the wiring changes.
+    # MEASURE: the knurled outer diameter and length of your inserts.
+    "insert_od": 4.6,
+    "insert_len": 5.7,
+    "insert_hole": 4.0,       # slightly under OD so the brass melts in and grips
+    "boss_wall": 2.0,         # plastic around the insert
     "screw_clear": 3.4,       # clearance hole in the lid
     "screw_head": 6.2,        # counterbore
     "screw_head_d": 2.2,
@@ -101,8 +109,12 @@ P = {
 def derived(p):
     d = dict(p)
     d["mod_t"] = p["disp_panel_t"] + p["disp_pcb_t"]
-    d["OW"] = p["disp_w"] + p["fit"] + 2 * p["margin"]
-    d["OH"] = p["disp_h"] + p["fit"] + 2 * p["margin"]
+    # Boss and bezel border both follow the insert size, so changing inserts
+    # cannot leave a boss overhanging the module pocket.
+    d["boss_od"] = p["insert_hole"] + 2 * p["boss_wall"]
+    d["margin"] = max(p["margin_min"], d["boss_od"] + 1.5)
+    d["OW"] = p["disp_w"] + p["fit"] + 2 * d["margin"]
+    d["OH"] = p["disp_h"] + p["fit"] + 2 * d["margin"]
     d["cavity_d"] = max(p["cavity_d_min"],
                         p["esp_stack_h"] + p["esp_pcb_t"] + p["esp_top_clear"])
     d["front_depth"] = p["bezel_t"] + d["mod_t"] + 0.4 + d["cavity_d"]
@@ -115,7 +127,7 @@ def derived(p):
     d["win_y"] = (d["OH"] - d["win_h"]) / 2 + p["active_dy"]
     d["pocket_x"] = (d["OW"] - (p["disp_w"] + p["fit"])) / 2
     d["pocket_y"] = (d["OH"] - (p["disp_h"] + p["fit"])) / 2
-    d["boss_inset"] = p["boss_od"] / 2 + 1.5
+    d["boss_inset"] = d["boss_od"] / 2 + 1.5
     d["total_z"] = d["front_depth"] + p["lid_t"]
     d["wedge_z"] = d["total_z"] + p["rear_overhang"]
     d["drop"] = math.tan(math.radians(p["tilt_deg"])) * d["wedge_z"]
@@ -183,11 +195,13 @@ def build_front():
 
     # Screw bosses rise from the back of the module pocket, so they also stop
     # the module lifting out of its pocket.
+    # Insert goes in from the open back of the boss, so the bore starts at the
+    # rear face and stops short of the module.
     for (bx, by) in boss_positions():
-        b = cyl(P["boss_od"] / 2, D["cavity_d"], bx, by, D["cavity_z"])
-        s = s.fuse(b)
-        s = s.cut(cyl(P["boss_pilot"] / 2, D["cavity_d"] + 1,
-                      bx, by, D["cavity_z"]))
+        s = s.fuse(cyl(D["boss_od"] / 2, D["cavity_d"], bx, by, D["cavity_z"]))
+        bore = P["insert_len"] + 1.0
+        s = s.cut(cyl(P["insert_hole"] / 2, bore, bx, by,
+                      D["front_depth"] - bore))
 
     # USB-C access through the right wall, aligned to where the board actually
     # sits on its posts. Both ports are on one short edge of the board.
@@ -286,54 +300,56 @@ def build_back():
 
 
 # ============================================================================
-# Fit-check coupon - print this first
+# Test prints - run these before committing to the full parts
+#
+# Two separate parts, not one. The display module is 103 x 78.5, so once its
+# corner is seated in the bezel rail it covers the whole plate - anything else
+# printed alongside collides with it and the test cannot be performed.
 # ============================================================================
-def build_fit_check():
-    """Bezel corner, screw boss, and one end of the ESP32 cradle, full scale.
+FIT_H = 50.0
 
-    Split into two zones with the bezel cuts confined to zone A. When those cuts
-    spanned the whole coupon they undercut the second cradle pillar in zone B
-    and left it floating in mid-air, printable only on supports.
-    """
-    zone_a = 56.0
-    zone_b = 44.0
-    gap = 4.0
-    cw = zone_a + gap + zone_b
-    ch = 50.0
+
+def build_fit_display():
+    """Bezel corner, module pocket and one screw boss, at full scale."""
+    w = 56.0
     base = P["bezel_t"] + D["pocket_d"]
+    m = D["margin"]
 
-    c = box(cw, ch, base)
+    c = box(w, FIT_H, base)
 
-    # --- zone A: bezel corner, module pocket, screw boss -------------------
-    # Both cuts stop at zone_a so zone B stays solid underneath.
-    c = c.cut(box(zone_a - P["margin"], ch - P["margin"], D["pocket_d"] + 1,
-                  P["margin"], P["margin"], P["bezel_t"]))
-    c = c.cut(box(zone_a - P["margin"] - (P["disp_w"] - P["active_w"]) / 2
-                  - P["bezel_overlap"],
-                  ch - P["margin"] - (P["disp_h"] - P["active_h"]) / 2
-                  - P["bezel_overlap"],
-                  P["bezel_t"] + 2,
-                  P["margin"] + (P["disp_w"] - P["active_w"]) / 2
-                  + P["bezel_overlap"],
-                  P["margin"] + (P["disp_h"] - P["active_h"]) / 2
-                  + P["bezel_overlap"], -1))
+    # Module pocket: an L rail the module's corner nests into.
+    c = c.cut(box(w - m, FIT_H - m, D["pocket_d"] + 1, m, m, P["bezel_t"]))
 
-    c = c.fuse(cyl(P["boss_od"] / 2, 8.0, D["boss_inset"], D["boss_inset"], base))
-    c = c.cut(cyl(P["boss_pilot"] / 2, 9.0, D["boss_inset"], D["boss_inset"], base))
+    # Viewing window, leaving the bezel lip between rail and opening.
+    lip_x = m + (P["disp_w"] - P["active_w"]) / 2 + P["bezel_overlap"]
+    lip_y = m + (P["disp_h"] - P["active_h"]) / 2 + P["bezel_overlap"]
+    c = c.cut(box(w - lip_x, FIT_H - lip_y, P["bezel_t"] + 2, lip_x, lip_y, -1))
 
-    # --- zone B: one short end of the ESP32 cradle -------------------------
-    # Two pillars at true spacing with their outboard L brackets, so the board's
-    # short edge can be dropped in to check the width fit.
-    bx = zone_a + gap + 16.0
-    by0 = (ch - P["esp_w"]) / 2
+    # Boss bored for a heat-set insert, at the true corner inset.
+    c = c.fuse(cyl(D["boss_od"] / 2, P["insert_len"] + 3.0,
+                   D["boss_inset"], D["boss_inset"], base))
+    c = c.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0,
+                  D["boss_inset"], D["boss_inset"],
+                  base + 2.0))
+
+    return c.removeSplitter()
+
+
+def build_fit_cradle():
+    """One short end of the ESP32 cradle: both pillars and their brackets."""
+    w = 44.0
+    base = 3.0
+    c = box(w, FIT_H, base)
+
+    bx = 16.0
+    by0 = (FIT_H - P["esp_w"]) / 2
     br = 1.8
     lip_h = P["esp_pcb_t"] + 1.5
     f = P["esp_fit"] / 2
     for (py, sy) in [(by0 - f, 1), (by0 + P["esp_w"] + f, -1)]:
         c = c.fuse(cyl(3.0, 8.0, bx, py, base))
-        c = c.fuse(box(10.0, br, lip_h,
-                       bx - 5.0,
-                       py - br if sy > 0 else py, base + 8.0))
+        c = c.fuse(box(10.0, br, lip_h + 1.0, bx - 5.0,
+                       py - br if sy > 0 else py, base + 8.0 - 1.0))
 
     return c.removeSplitter()
 
@@ -371,7 +387,8 @@ def main():
     print("")
     export(build_front(), "front-shell")
     export(build_back(), "back-shell")
-    export(build_fit_check(), "fit-check")
+    export(build_fit_display(), "test-display")
+    export(build_fit_cradle(), "test-cradle")
     print("\nWrote STL + STEP to %s" % OUT)
 
 

@@ -14,7 +14,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import FreeCAD as App  # noqa: E402
-from enclosure import build_front, build_back, build_fit_check, D, P  # noqa: E402
+from enclosure import (  # noqa: E402
+    build_front, build_back, build_fit_display, build_fit_cradle, FIT_H, D, P)
 
 FAILS = []
 
@@ -53,11 +54,12 @@ def span(shape, p0, p1, samples=600):
 def main():
     front = build_front()
     back = build_back()
-    coupon = build_fit_check()
+    t_disp = build_fit_display()
+    t_crad = build_fit_cradle()
 
     print("\nConnectivity (a floating feature shows up as an extra solid)")
     for nm, sh in [("front-shell", front), ("back-shell", back),
-                   ("fit-check", coupon)]:
+                   ("test-display", t_disp), ("test-cradle", t_crad)]:
         check("%s is one connected solid" % nm, len(sh.Solids) == 1,
               "%d solids" % len(sh.Solids))
         check("%s is valid geometry" % nm, sh.isValid())
@@ -79,9 +81,13 @@ def main():
     ww = span(front, (0, y, zw), (D["OW"], y, zw))
     check("window narrower than active area", ww < P["active_w"],
           "%.2f mm open vs %.1f active" % (ww, P["active_w"]))
+    # Tolerance has to respect the sampling step, or the check is tighter than
+    # the measurement it is based on and fails on rounding.
+    step = D["OW"] / 600.0
     check("window overlap is symmetric and correct",
-          abs(ww - (P["active_w"] - 2 * P["bezel_overlap"])) < 0.05,
-          "%.2f mm" % ww)
+          abs(ww - (P["active_w"] - 2 * P["bezel_overlap"])) < 2 * step,
+          "%.2f mm, expected %.2f, tolerance %.2f"
+          % (ww, P["active_w"] - 2 * P["bezel_overlap"], 2 * step))
 
     print("\nESP32 cradle")
     # Between the L brackets, across the board's width.
@@ -93,13 +99,28 @@ def main():
     check("bracket gap is not sloppy", g <= P["esp_w"] + 1.5,
           "%.2f mm free" % g)
 
-    # Same check on the coupon, which is what actually gets printed first.
-    cy = (50.0 - P["esp_w"]) / 2
-    cz = P["bezel_t"] + D["pocket_d"] + 8.0 + P["esp_pcb_t"] / 2
-    cx = 56.0 + 4.0 + 16.0
-    gc = span(coupon, (cx, cy - 8, cz), (cx, cy + P["esp_w"] + 8, cz))
-    check("coupon reproduces the same gap", abs(gc - g) < 0.05,
-          "coupon %.2f vs shell %.2f" % (gc, g))
+    # Same check on the test print, which is what actually gets printed first.
+    cy = (FIT_H - P["esp_w"]) / 2
+    cz = 3.0 + 8.0 + P["esp_pcb_t"] / 2
+    gc = span(t_crad, (16.0, cy - 8, cz), (16.0, cy + P["esp_w"] + 8, cz))
+    check("test print reproduces the same gap", abs(gc - g) < 0.05,
+          "test %.2f vs shell %.2f" % (gc, g))
+
+    print("\nTest print clearance")
+    # The module is 103 x 78.5, so once its corner is in the rail it covers the
+    # whole plate. Nothing may stand above the pocket floor inside that
+    # footprint or the module cannot seat - which is how a cradle sharing the
+    # plate with the bezel corner went unnoticed.
+    zf = P["bezel_t"] + D["pocket_d"] + 0.5
+    obstructed = []
+    for i in range(40):
+        for j in range(40):
+            x = D["margin"] + (56.0 - D["margin"]) * (i + 0.5) / 40
+            y = D["margin"] + (FIT_H - D["margin"]) * (j + 0.5) / 40
+            if solid(t_disp, (x, y, zf)):
+                obstructed.append((round(x, 1), round(y, 1)))
+    check("nothing obstructs the seated module", not obstructed,
+          "%d sample points blocked" % len(obstructed))
 
     print("\nUSB opening")
     uy = D["esp_y"] + P["esp_w"] / 2
