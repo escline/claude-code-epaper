@@ -90,9 +90,13 @@ P = {
     # pillars under its corners: the Dupont housings plug onto the corner pins
     # (GND and 3V3) and occupy exactly where corner pillars would stand.
     "esp_rail_w": 3.0,
-    # How far the ledge reaches in under the PCB edge. Must stay clear of the
-    # housings, which start roughly 1.3mm in from the edge.
-    "esp_ledge": 1.2,
+    # The board is caught under its two SHORT ends, not its long edges. The
+    # header plastic runs right to the long edges, so a ledge there bears on
+    # the plastic rather than the PCB and seats the board ~2.5mm high - enough
+    # to drive the WROOM can into the back of the display. Between the two pin
+    # columns the short ends are bare.
+    "esp_ledge_x": 3.0,       # how far the shelf reaches under the board's end
+    "esp_ledge_w": 14.0,      # span across the middle, clear of the corner pins
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
@@ -269,12 +273,18 @@ def build_back():
     lid = box(D["OW"], D["OH"], P["lid_t"], 0, 0, z0)
 
     # Register lip that drops into the front shell's cavity.
+    # A perimeter ring, not a plate. As a plate it spanned the whole cavity and
+    # stole 1.6mm of the depth the Dupont housings and their wire bend need.
     lip_t = 1.6
+    lip_w = 3.0
     sf = P["shell_fit"]
-    lid = lid.fuse(box(D["OW"] - 2 * P["wall"] - sf,
-                       D["OH"] - 2 * P["wall"] - sf,
-                       lip_t,
-                       P["wall"] + sf / 2, P["wall"] + sf / 2, z0 - lip_t))
+    lip_o = box(D["OW"] - 2 * P["wall"] - sf, D["OH"] - 2 * P["wall"] - sf,
+                lip_t, P["wall"] + sf / 2, P["wall"] + sf / 2, z0 - lip_t)
+    lip_i = box(D["OW"] - 2 * P["wall"] - sf - 2 * lip_w,
+                D["OH"] - 2 * P["wall"] - sf - 2 * lip_w, lip_t + 2,
+                P["wall"] + sf / 2 + lip_w, P["wall"] + sf / 2 + lip_w,
+                z0 - lip_t - 1)
+    lid = lid.fuse(lip_o.cut(lip_i))
 
     # Counterbored clearance holes, screws entering from behind.
     for (bx, by) in boss_positions():
@@ -293,19 +303,24 @@ def build_back():
     # edge; the rails retain it sideways. Everything is outside the board
     # footprint except the ledge, so the Dupont housings hang free.
     rw = P["esp_rail_w"]
-    lg = P["esp_ledge"]
     lip_h = P["esp_pcb_t"] + 1.5
     f = P["esp_fit"] / 2
     zf = z0 - post - P["esp_pcb_t"] - 1.5   # front face of the rails
 
+    # Side rails retain the board sideways only - no ledge, so nothing intrudes
+    # under the header plastic or the housings plugged into it.
     for sy in (-1, 1):
         inner = (ey - f) if sy < 0 else (ey + P["esp_w"] + f)
         ry = inner - rw if sy < 0 else inner
         lid = lid.fuse(box(P["esp_l"], rw, post + lip_h, ex, ry, zf))
-        # Ledge, kept thin in Z so only the PCB edge rests on it and the
-        # housings behind have room.
-        ly = inner if sy < 0 else inner - lg
-        lid = lid.fuse(box(P["esp_l"], lg, 2.0, ex, ly, z0 - post))
+
+    # Pedestals under the middle of each short end, where the PCB is bare.
+    # Full height to the lid - as thin shelves they had nothing beneath them
+    # and printed as separate floating solids.
+    lw = P["esp_ledge_w"]
+    ly = ey + (P["esp_w"] - lw) / 2
+    for lx in (ex, ex + P["esp_l"] - P["esp_ledge_x"]):
+        lid = lid.fuse(box(P["esp_ledge_x"], lw, post, lx, ly, z0 - post))
 
     # End stop so the board cannot slide along its length. Only at the far end
     # - the USB ports have to reach the opening at the other.
@@ -398,19 +413,24 @@ def build_fit_cradle():
     base = 3.0
     post = D["esp_post_h"]
     rw = P["esp_rail_w"]
-    lg = P["esp_ledge"]
     lip_h = P["esp_pcb_t"] + 1.5
     f = P["esp_fit"] / 2
 
     by0 = (FIT_H - P["esp_w"]) / 2
     c = box(w, FIT_H, base)
 
+    # Side rails: retention only.
     for sy in (-1, 1):
         inner = (by0 - f) if sy < 0 else (by0 + P["esp_w"] + f)
         ry = inner - rw if sy < 0 else inner
         c = c.fuse(box(w, rw, post + lip_h, 0, ry, base))
-        ly = inner if sy < 0 else inner - lg
-        c = c.fuse(box(w, lg, 2.0, 0, ly, base + post - 2.0))
+
+    # One end pedestal, plus the end stop, as on the real lid.
+    lw = P["esp_ledge_w"]
+    c = c.fuse(box(P["esp_ledge_x"], lw, post,
+                   2.0, by0 + (P["esp_w"] - lw) / 2, base))
+    c = c.fuse(box(2.0, P["esp_w"] + P["esp_fit"] + 2 * rw, post + lip_h,
+                   0, by0 - f - rw, base))
 
     return c.removeSplitter()
 

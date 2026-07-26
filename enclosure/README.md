@@ -85,26 +85,44 @@ An L-shaped rail with a bezel lip and a screw boss. It reproduces the
 A section of the two rails, at the **real** 19.5 mm height.
 
 4. **Cradle width.** Drop the ESP32 into the channel between the rails. It
-   should land on the ledges with barely perceptible side play. Needing force
-   means `esp_w` is short.
-5. **Ledge clearance.** The ledge reaches 1.2 mm in under the PCB edge. Check
-   it catches the board without fouling any Dupont housing — the housings start
-   roughly 1.3 mm in from the edge, so this is the tightest fit in the design.
+   should slide in with barely perceptible side play. Needing force means
+   `esp_w` is short.
+5. **End support.** The board's short end should land squarely on the pedestal,
+   which catches the bare PCB between the two pin columns. Nothing should touch
+   the header plastic or any Dupont housing.
 6. **Stack depth.** With the board seated, the housings hang in the open gap
    under it. Check they clear the base plate, and that the wires can turn out
-   sideways without being pinched. This is the check for `esp_stack_h` — get it
-   wrong and the back shell will not close.
+   sideways without being pinched. This is the check for `esp_stack_h`.
 
-### Why rails and not corner pillars
+### How the board is carried, and why
 
-The first cradle stood four pillars under the board's corners. The Dupont
-housings plug onto the corner pins — GND and 3V3 — so the pillars and the
-connectors wanted the same space. Moving the pillars inboard does not help
-either; connectors are scattered along both header rows.
+Two failed approaches, both found on hardware:
 
-Rails run *outboard* of the board's long edges, so the entire support is
-outside the board's footprint except for a 1.2 mm ledge catching the PCB edge.
-Everything hanging below the board is then in free air.
+**Corner pillars.** The Dupont housings plug onto the corner pins — GND and
+3V3 — so pillars under the board's corners wanted the same space. Moving them
+inboard does not help; connectors are scattered along both header rows.
+
+**A ledge under the long edges.** The header plastic runs right to the PCB
+edge, so the ledge bears on the plastic rather than the board. That seats the
+ESP32 about 2.5 mm closer to the display — enough to drive the WROOM can into
+the back of the panel.
+
+**What works:** side rails that only retain the board sideways, plus pedestals
+under the middle of each short end, where the PCB is bare between the two pin
+columns. Nothing enters the band along the long edges where the plastic and
+housings live, and `verify.py` asserts that.
+
+### Depth budget behind the board
+
+| | |
+| --- | --- |
+| Board underside to lid | 19.5 mm |
+| Dupont housings | 16.5 mm |
+| Left for the wire bend | 3.0 mm |
+| Display back to PCB face | 4.0 mm (WROOM is ~3.1 tall) |
+
+The lid's register lip is a perimeter ring, not a plate. As a plate it spanned
+the whole cavity and silently took 1.6 mm out of that wire-bend allowance.
 
 ### What the test parts do not cover
 

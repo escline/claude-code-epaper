@@ -51,19 +51,25 @@ def span(shape, p0, p1, samples=600):
     return best / samples * math.dist(p0, p1)
 
 
-def solid_span(shape, p0, p1, samples=600):
-    """Longest contiguous run of material along the segment p0->p1."""
+def outer_span(shape, p0, p1, samples=600):
+    """Distance from the first to the last material along the segment.
+
+    Not the longest contiguous run: the register lip is a ring, so a contiguous
+    measure returns one 3mm wall rather than the lip's overall width, which is
+    what has to fit the cavity.
+    """
     import math
-    best = run = 0
+    first = last = None
     for i in range(samples):
         t = (i + 0.5) / samples
         p = [p0[j] + (p1[j] - p0[j]) * t for j in range(3)]
         if solid(shape, p):
-            run += 1
-            best = max(best, run)
-        else:
-            run = 0
-    return best / samples * math.dist(p0, p1)
+            if first is None:
+                first = i
+            last = i
+    if first is None:
+        return 0.0
+    return (last - first + 1) / samples * math.dist(p0, p1)
 
 
 def main():
@@ -144,6 +150,23 @@ def main():
     check("test print reproduces the same gap", abs(gc - g) < 0.05,
           "test %.2f vs shell %.2f" % (gc, g))
 
+    # The header plastic and the Dupont housings occupy a band along each long
+    # edge of the board, from the PCB underside down to the housings' ends.
+    # Nothing in the cradle may enter it - a ledge here bears on the plastic
+    # instead of the board and seats the ESP32 high.
+    intrude = []
+    zb0 = D["front_depth"] - D["esp_post_h"] + 0.5
+    for band in (0.0, P["esp_w"] - 4.0):
+        for i in range(24):
+            for k in range(14):
+                x = D["esp_x"] + P["esp_l"] * (i + 0.5) / 24
+                y = D["esp_y"] + band + 4.0 * (k % 4) / 4
+                z = zb0 + (D["front_depth"] - zb0 - 0.2) * (k + 0.5) / 14
+                if solid(back, (x, y, z)):
+                    intrude.append((round(x, 1), round(y, 1)))
+    check("nothing intrudes under the board's long edges", not intrude,
+          "%d sample points blocked" % len(intrude))
+
     print("\nTest print clearance")
     # The module is 103 x 78.5, so once its corner is in the rail it covers the
     # whole plate. Nothing may stand above the pocket floor inside that
@@ -178,7 +201,7 @@ def main():
     y = D["OH"] / 2
     n = 4000
     cav = span(front, (0, y, zl), (D["OW"], y, zl), n)       # open run in shell
-    lip = solid_span(back, (0, y, zl), (D["OW"], y, zl), n)  # lip run on lid
+    lip = outer_span(back, (0, y, zl), (D["OW"], y, zl), n)  # lip width on lid
     gap = cav - lip
     tol = 2 * D["OW"] / n
     check("lid lip fits the front shell cavity", gap > 0.5,
