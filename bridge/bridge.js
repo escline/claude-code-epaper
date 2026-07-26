@@ -237,6 +237,11 @@ function runDaemon() {
     if (sid) liveSessions.set(sid, Date.now());
     if (d.cwd) state.project = basename(d.cwd);
 
+    // Hook payload field names have drifted before. These events are low
+    // frequency, so recording the shape is cheap and makes a blank detail line
+    // diagnosable from the log rather than guesswork.
+    log(`hook ${event} keys=[${Object.keys(d).join(',')}]`);
+
     switch (event) {
       case 'SessionStart':
         state.status = 'idle';
@@ -245,7 +250,7 @@ function runDaemon() {
 
       case 'UserPromptSubmit':
         state.status = 'working';
-        state.detail = shorten(d.user_prompt);
+        state.detail = shorten(d.user_prompt ?? d.prompt ?? '');
         break;
 
       case 'PreToolUse':
