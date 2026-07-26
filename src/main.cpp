@@ -150,9 +150,13 @@ void loop() {
     mqtt.loop();
   }
 
-  // Belt and braces alongside the bridge's last will: if the broker itself
-  // vanishes we never receive the will, so fall back to a silence timer.
-  if (lastStateMs && (millis() - lastStateMs) > BRIDGE_STALE_MS) {
+  // A bridge that runs all the time legitimately publishes nothing while
+  // Claude Code is closed, so silence alone is not a fault - only treat it as
+  // one when the bridge has stopped asserting itself online. If the broker
+  // itself vanishes, our own connection drops and the "No broker" banner
+  // covers that case instead.
+  if (!bridgeOnline && lastStateMs &&
+      (millis() - lastStateMs) > BRIDGE_STALE_MS) {
     ClaudeState s;
     s.status = ClaudeStatus::Offline;
     strncpy(s.detail, "no updates", sizeof(s.detail) - 1);

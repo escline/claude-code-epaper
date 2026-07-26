@@ -11,5 +11,12 @@
   "_comment_port": "localhost TCP port the statusline/hook clients send to",
   "port": 8787,
   "_comment_idle": "ms of silence after which a 'working' status decays to 'idle'",
-  "idleAfterMs": 300000
+  "idleAfterMs": 300000,
+  "_comment_ha": "Home Assistant MQTT discovery. discoveryPrefix must match HA's MQTT integration setting (default 'homeassistant').",
+  "homeassistant": {
+    "enabled": true,
+    "discoveryPrefix": "homeassistant",
+    "nodeId": "claude_code",
+    "deviceName": "Claude Code"
+  }
 }

@@ -166,6 +166,83 @@ The optional config is at the bottom of the snippet file if you want it.
 Restart Claude Code. The status line should appear at the bottom of your
 terminal, and the panel should start tracking.
 
+### 7. Keep the daemon running (optional)
+
+You do not strictly need this. The daemon auto-spawns whenever a hook or
+statusline call finds it missing, and `refreshInterval: 30` guarantees a call
+every 30 seconds while Claude Code is open — measured recovery after being
+killed is about 16 seconds, unattended.
+
+Install autostart only if you want the panel and Home Assistant showing
+last-known usage while Claude Code is **closed**:
+
+```
+powershell -ExecutionPolicy Bypass -File bridge\install-autostart.ps1
+```
+
+It prefers a scheduled task (which also restarts a crashed daemon), but that
+needs elevation on most machines; without it, it falls back to a Startup-folder
+launcher that needs no admin. Both start the daemon with no console window.
+Re-run it if you move the repo, since the launcher hardcodes absolute paths.
+
+To remove: `... -File bridge\install-autostart.ps1 -Uninstall`
+
+Note the numbers only *change* while Claude Code is running — statusline is the
+only source. With autostart, a closed editor shows the last known values rather
+than OFFLINE.
+
+## Home Assistant
+
+The bridge publishes MQTT discovery configs, so HA creates the entities itself.
+Set `homeassistant.enabled` in `bridge/config.json` (on by default) and make
+`discoveryPrefix` match your MQTT integration's setting. The daemon republishes
+on every broker connect, so entities reappear after an HA restart.
+
+A **Claude Code** device shows up under Settings → Devices & Services → MQTT
+with 12 entities:
+
+| Entity | Notes |
+| --- | --- |
+| `sensor.session_usage` | 5-hour limit used, % |
+| `sensor.weekly_usage` | 7-day limit used, % |
+| `sensor.session_resets`, `sensor.weekly_resets` | `device_class: timestamp` |
+| `sensor.context_usage` | context window used, % |
+| `sensor.session_cost` | USD |
+| `sensor.status`, `sensor.activity` | `idle`/`working`/`needs_you`, and detail text |
+| `sensor.model`, `sensor.project` | diagnostic |
+| `binary_sensor.needs_attention` | ON when Claude is blocked on you |
+| `binary_sensor.working` | ON while processing |
+
+All share the bridge's availability topic, so they go unavailable together when
+the last will fires.
+
+`binary_sensor.needs_attention` is the useful automation trigger — flash a lamp
+or push a phone notification when Claude blocks on a permission prompt:
+
+```yaml
+automation:
+  - alias: Claude needs me
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.needs_attention
+        to: "on"
+    action:
+      - service: light.turn_on
+        target: { entity_id: light.desk }
+        data: { flash: short }
+```
+
+Republish or remove the entities without restarting the daemon:
+
+```
+node bridge/bridge.js discovery            # republish
+node bridge/bridge.js discovery --remove   # delete from HA
+```
+
+`session_cost` is deliberately not `device_class: monetary` — cost resets to 0
+on `/clear`, which would make HA's long-term statistics read each new session as
+a negative adjustment.
+
 ## Commands
 
 ```
@@ -174,7 +251,11 @@ pio run -e paneltest -t upload      # panel bring-up test
 node bridge/bridge.js status        # config, broker, is the daemon up
 node bridge/bridge.js demo          # push a fake state
 node bridge/bridge.js daemon        # run in foreground to watch it
+node bridge/bridge.js discovery     # republish Home Assistant entities
 ```
+
+Careful with `demo`: it writes fake values to the retained topic, so the panel
+shows them until the next real update.
 
 The daemon auto-spawns detached. To stop it:
 `Get-Process node | Where-Object { $_.CommandLine -like '*bridge.js*' } | Stop-Process`.

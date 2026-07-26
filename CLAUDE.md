@@ -55,6 +55,23 @@ check. For bridge changes, `demo` plus a subscriber is the equivalent.
 - State is published **retained**, with a last-will of `offline`. Both matter:
   retained makes ESP32 reboots recover instantly, the will stops a dead bridge
   from leaving a convincing but stale screen.
+- **Bind the port before connecting to MQTT.** A daemon that loses the race for
+  8787 must exit without ever opening an MQTT session — otherwise its hard exit
+  fires the last will, and the retained bridge topic reads `offline` while the
+  winner is running, blanking the panel and marking every HA entity
+  unavailable. `startMqtt()` is called from the `server.listen` callback for
+  exactly this reason; do not hoist it.
+- **On startup, seed from the retained snapshot rather than publishing.** A
+  fresh daemon's empty defaults would otherwise clobber known-good usage
+  numbers — invisible when a statusline call respawns it, ugly when autostart
+  runs it with Claude Code closed.
+- Hook payload field names have drifted from the docs before: `UserPromptSubmit`
+  carries `prompt`, not the documented `user_prompt`. `applyHook` logs each
+  event's payload keys to `bridge.log` so the next drift is a lookup.
+- HA discovery is retained and republished on every connect, which is what makes
+  entities survive an HA restart. Adding an entity means adding it to
+  `HA_ENTITIES`; removing one needs `discovery --remove` first, or its retained
+  config lingers on the broker.
 
 ### Credentials
 

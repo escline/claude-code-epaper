@@ -65,6 +65,132 @@ function basename(p) {
   return path.basename(p.replace(/[\\/]+$/, ''));
 }
 
+// --------------------------------------------------------------------------
+// Home Assistant MQTT discovery
+//
+// Every entity reads the same retained JSON snapshot through a value_template,
+// so HA needs no extra topics, and all of them share the bridge's availability
+// topic - when the last will fires, the whole device goes unavailable at once.
+// --------------------------------------------------------------------------
+const HA_ENTITIES = [
+  {
+    id: 'session_usage',
+    name: 'Session Usage (5h)',
+    tpl: "{{ value_json.session.used_pct | default('unknown') }}",
+    unit: '%',
+    icon: 'mdi:speedometer',
+    stateClass: 'measurement',
+  },
+  {
+    id: 'weekly_usage',
+    name: 'Weekly Usage (7d)',
+    tpl: "{{ value_json.week.used_pct | default('unknown') }}",
+    unit: '%',
+    icon: 'mdi:calendar-week',
+    stateClass: 'measurement',
+  },
+  {
+    id: 'session_resets',
+    name: 'Session Limit Resets',
+    tpl:
+      '{% if value_json.session.resets_at is defined and value_json.session.resets_at > 0 %}' +
+      '{{ value_json.session.resets_at | int | as_datetime }}{% else %}unknown{% endif %}',
+    deviceClass: 'timestamp',
+  },
+  {
+    id: 'weekly_resets',
+    name: 'Weekly Limit Resets',
+    tpl:
+      '{% if value_json.week.resets_at is defined and value_json.week.resets_at > 0 %}' +
+      '{{ value_json.week.resets_at | int | as_datetime }}{% else %}unknown{% endif %}',
+    deviceClass: 'timestamp',
+  },
+  { id: 'status', name: 'Status', tpl: '{{ value_json.status }}', icon: 'mdi:robot' },
+  {
+    id: 'activity',
+    name: 'Activity',
+    tpl: "{{ value_json.detail | default('') | truncate(250) }}",
+    icon: 'mdi:text-short',
+  },
+  {
+    id: 'context_usage',
+    name: 'Context Used',
+    tpl: "{{ value_json.context_pct | default('unknown') }}",
+    unit: '%',
+    icon: 'mdi:memory',
+    stateClass: 'measurement',
+  },
+  {
+    // Not device_class monetary: cost resets to 0 on /clear, which would make
+    // HA's long-term statistics treat each session as a negative adjustment.
+    id: 'session_cost',
+    name: 'Session Cost',
+    tpl: '{{ value_json.cost_usd | default(0) | round(4) }}',
+    unit: 'USD',
+    icon: 'mdi:currency-usd',
+    stateClass: 'measurement',
+  },
+  {
+    id: 'model',
+    name: 'Model',
+    tpl: "{{ value_json.model | default('') }}",
+    icon: 'mdi:brain',
+    category: 'diagnostic',
+  },
+  {
+    id: 'project',
+    name: 'Project',
+    tpl: "{{ value_json.project | default('') }}",
+    icon: 'mdi:folder',
+    category: 'diagnostic',
+  },
+  {
+    kind: 'binary_sensor',
+    id: 'needs_attention',
+    name: 'Needs Attention',
+    tpl: "{% if value_json.status == 'needs_you' %}ON{% else %}OFF{% endif %}",
+    deviceClass: 'problem',
+  },
+  {
+    kind: 'binary_sensor',
+    id: 'working',
+    name: 'Working',
+    tpl: "{% if value_json.status == 'working' %}ON{% else %}OFF{% endif %}",
+    icon: 'mdi:cog-sync',
+  },
+];
+
+function haDiscoveryMessages(cfg) {
+  const ha = cfg.homeassistant || {};
+  const prefix = ha.discoveryPrefix || 'homeassistant';
+  const node = ha.nodeId || 'claude_code';
+  const device = {
+    identifiers: [node],
+    name: ha.deviceName || 'Claude Code',
+    manufacturer: 'Anthropic',
+    model: 'Claude Code e-Paper Bridge',
+  };
+
+  return HA_ENTITIES.map((e) => ({
+    topic: `${prefix}/${e.kind || 'sensor'}/${node}/${e.id}/config`,
+    payload: JSON.stringify({
+      name: e.name,
+      unique_id: `${node}_${e.id}`,
+      state_topic: cfg.topics.state,
+      value_template: e.tpl,
+      availability_topic: cfg.topics.bridge,
+      payload_available: 'online',
+      payload_not_available: 'offline',
+      device,
+      ...(e.unit ? { unit_of_measurement: e.unit } : {}),
+      ...(e.icon ? { icon: e.icon } : {}),
+      ...(e.deviceClass ? { device_class: e.deviceClass } : {}),
+      ...(e.stateClass ? { state_class: e.stateClass } : {}),
+      ...(e.category ? { entity_category: e.category } : {}),
+    }),
+  }));
+}
+
 function readStdin() {
   return new Promise((resolve) => {
     let buf = '';
@@ -165,18 +291,12 @@ function runDaemon() {
   const liveSessions = new Map();
   let lastEventAt = Date.now();
 
-  const client = mqttLib.connect(cfg.mqtt.url, {
-    username: cfg.mqtt.username || undefined,
-    password: cfg.mqtt.password || undefined,
-    clientId: `claude-epaper-bridge-${os.hostname()}-${process.pid}`,
-    reconnectPeriod: 5000,
-    will: {
-      topic: cfg.topics.bridge,
-      payload: 'offline',
-      qos: 0,
-      retain: true,
-    },
-  });
+  // Created only after we win the port, below. A daemon that loses the race
+  // must never open an MQTT session: exiting would drop the connection without
+  // a clean DISCONNECT, the broker would fire its last will, and the retained
+  // bridge topic would read "offline" while the winning daemon is running -
+  // blanking the panel and marking every Home Assistant entity unavailable.
+  let client = null;
 
   // A restarting daemon must not clobber the retained snapshot with its empty
   // defaults - that would blank the panel's gauges until the next statusline
@@ -189,38 +309,63 @@ function runDaemon() {
     if (seeded) return;
     seeded = true;
     clearTimeout(seedTimer);
-    client.unsubscribe(cfg.topics.state);
+    if (client) client.unsubscribe(cfg.topics.state);
   }
 
-  client.on('connect', () => {
-    log(`connected to ${cfg.mqtt.url}`);
-    client.publish(cfg.topics.bridge, 'online', { retain: true });
-    if (!seeded) {
-      client.subscribe(cfg.topics.state);
-      // No retained message will arrive if the topic has never been published.
-      seedTimer = setTimeout(finishSeeding, 1500);
-    }
-  });
+  function startMqtt() {
+    client = mqttLib.connect(cfg.mqtt.url, {
+      username: cfg.mqtt.username || undefined,
+      password: cfg.mqtt.password || undefined,
+      clientId: `claude-epaper-bridge-${os.hostname()}-${process.pid}`,
+      reconnectPeriod: 5000,
+      will: {
+        topic: cfg.topics.bridge,
+        payload: 'offline',
+        qos: 0,
+        retain: true,
+      },
+    });
 
-  client.on('message', (topic, payload) => {
-    if (seeded || topic !== cfg.topics.state) return;
-    try {
-      Object.assign(state, JSON.parse(payload.toString()));
-      log('seeded in-memory state from retained snapshot');
-    } catch (e) {
-      log(`retained snapshot unparseable, ignoring: ${e.message}`);
-    }
-    finishSeeding();
-  });
+    client.on('connect', () => {
+      log(`connected to ${cfg.mqtt.url}`);
+      client.publish(cfg.topics.bridge, 'online', { retain: true });
 
-  client.on('error', (e) => log(`mqtt error: ${e.message}`));
-  client.on('close', () => log('mqtt connection closed'));
+      // Retained and idempotent, so republishing on every connect is what
+      // makes the entities reappear after a Home Assistant restart.
+      if (cfg.homeassistant && cfg.homeassistant.enabled) {
+        const msgs = haDiscoveryMessages(cfg);
+        for (const m of msgs) client.publish(m.topic, m.payload, { retain: true });
+        log(`published ${msgs.length} Home Assistant discovery configs`);
+      }
+
+      if (!seeded) {
+        client.subscribe(cfg.topics.state);
+        // No retained message arrives if the topic was never published.
+        seedTimer = setTimeout(finishSeeding, 1500);
+      }
+    });
+
+    client.on('message', (topic, payload) => {
+      if (seeded || topic !== cfg.topics.state) return;
+      try {
+        Object.assign(state, JSON.parse(payload.toString()));
+        log('seeded in-memory state from retained snapshot');
+      } catch (e) {
+        log(`retained snapshot unparseable, ignoring: ${e.message}`);
+      }
+      finishSeeding();
+    });
+
+    client.on('error', (e) => log(`mqtt error: ${e.message}`));
+    client.on('close', () => log('mqtt connection closed'));
+  }
 
   let publishTimer = null;
   function publish() {
     if (publishTimer) return; // coalesce bursts
     publishTimer = setTimeout(() => {
       publishTimer = null;
+      if (!client) return; // broker connection not up yet
       state.ts = Math.floor(Date.now() / 1000);
       const json = JSON.stringify(state);
       // Retained, so a rebooting ESP32 repaints correct state immediately.
@@ -309,13 +454,14 @@ function runDaemon() {
 
       case 'SessionEnd':
         if (sid) liveSessions.delete(sid);
-        if (liveSessions.size === 0) {
-          state.status = 'offline';
-          state.detail = '';
-        } else {
-          state.status = 'idle';
-          state.detail = `${liveSessions.size} session(s) open`;
-        }
+        // Not 'offline': with an always-on bridge, OFFLINE should mean the
+        // bridge itself is gone. Closing Claude Code just means no session,
+        // and the usage gauges stay meaningful and on screen.
+        state.status = 'idle';
+        state.detail =
+          liveSessions.size === 0
+            ? 'no active session'
+            : `${liveSessions.size} session(s) open`;
         break;
 
       default:
@@ -355,13 +501,16 @@ function runDaemon() {
   });
 
   server.on('error', (e) => {
-    // Another daemon already owns the port; that one wins.
-    log(`server error: ${e.message}`);
+    // Another daemon already owns the port; that one wins. No MQTT session
+    // exists yet, so exiting here is silent on the broker.
+    log(`not starting, another daemon owns the port: ${e.message}`);
     process.exit(0);
   });
 
+  // Bind first, connect to the broker only once we know we are the daemon.
   server.listen(cfg.port, '127.0.0.1', () => {
     log(`daemon listening on 127.0.0.1:${cfg.port}`);
+    startMqtt();
   });
 
   // If Claude Code dies without firing Stop/SessionEnd, don't leave the panel
@@ -378,6 +527,7 @@ function runDaemon() {
   }, 30000).unref?.();
 
   const shutdown = () => {
+    if (!client) process.exit(0);
     try {
       client.publish(cfg.topics.bridge, 'offline', { retain: true }, () => {
         client.end(true, () => process.exit(0));
@@ -461,6 +611,42 @@ async function runDemo() {
   console.log(ok ? 'demo state sent' : 'could not reach daemon');
 }
 
+// Publishing an empty payload to a discovery topic is how HA is told to drop
+// the entity, so the same code path handles setup and teardown.
+async function runDiscovery(remove) {
+  const cfg = loadConfig();
+  const mqttLib = require('mqtt');
+  const msgs = haDiscoveryMessages(cfg);
+
+  await new Promise((resolve) => {
+    const client = mqttLib.connect(cfg.mqtt.url, {
+      username: cfg.mqtt.username || undefined,
+      password: cfg.mqtt.password || undefined,
+      clientId: `claude-epaper-discovery-${process.pid}`,
+    });
+    client.on('error', (e) => {
+      console.log(`broker error: ${e.message}`);
+      client.end(true, resolve);
+    });
+    client.on('connect', () => {
+      let done = 0;
+      for (const m of msgs) {
+        client.publish(m.topic, remove ? '' : m.payload, { retain: true }, () => {
+          if (++done === msgs.length) {
+            console.log(
+              `${remove ? 'removed' : 'published'} ${msgs.length} entities on ${cfg.mqtt.url}`
+            );
+            if (!remove) {
+              console.log('look for a "Claude Code" device under Settings > Devices & Services > MQTT');
+            }
+            client.end(false, resolve);
+          }
+        });
+      }
+    });
+  });
+}
+
 async function runStatus() {
   const cfg = loadConfig();
   console.log(`config:  ${fs.existsSync(CONFIG_PATH) ? CONFIG_PATH : 'MISSING (using defaults)'}`);
@@ -489,8 +675,13 @@ const [, , mode, arg] = process.argv;
     case 'status':
       await runStatus();
       break;
+    case 'discovery':
+      await runDiscovery(arg === '--remove');
+      break;
     default:
-      console.log('usage: bridge.js daemon|statusline|hook <Event>|demo|status');
+      console.log(
+        'usage: bridge.js daemon|statusline|hook <Event>|demo|status|discovery [--remove]'
+      );
       process.exit(1);
   }
 })();
