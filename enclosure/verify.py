@@ -139,7 +139,7 @@ def main():
 
     # Same check on the test print, which is what actually gets printed first.
     cy = (FIT_H - P["esp_w"]) / 2
-    cz = 3.0 + 8.0 + P["esp_pcb_t"] / 2
+    cz = 3.0 + D["esp_post_h"] + P["esp_pcb_t"] / 2
     gc = span(t_crad, (16.0, cy - 8, cz), (16.0, cy + P["esp_w"] + 8, cz))
     check("test print reproduces the same gap", abs(gc - g) < 0.05,
           "test %.2f vs shell %.2f" % (gc, g))

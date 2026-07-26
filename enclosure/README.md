@@ -42,7 +42,7 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 | `front-shell` | 123.4 × 106.9 × 30.5 mm | **Face down** (bezel on the plate) |
 | `back-shell` | 123.4 × 123.5 × 51.0 mm | **Angled wedge face down** |
 | `test-display` | 56 × 50 × 13.9 mm | Flat, as oriented |
-| `test-cradle` | 44 × 50 × 14.1 mm | Flat, as oriented |
+| `test-cradle` | 44 × 50 × 25.6 mm | Flat, as oriented |
 
 Neither shell needs supports in the orientation above. Face-down printing also
 puts the plate's finish on the bezel, which is the surface you look at.
@@ -82,17 +82,22 @@ An L-shaped rail with a bezel lip and a screw boss. It reproduces the
 
 ### test-cradle
 
-Two pillars with L brackets.
+Two pillars with L brackets, at the **real** 19.5 mm height.
 
 4. **Cradle width.** Lower the ESP32's **short end** between the two brackets so
-   the PCB rests on both pillar tops. Only one end is supported — you are
-   testing width. It should drop in with barely perceptible side play. Needing
-   force means `esp_w` is short.
+   the PCB rests on both pillar tops. Only one end is supported — that is
+   expected. It should drop in with barely perceptible side play. Needing force
+   means `esp_w` is short.
+5. **Stack depth.** With the board seated, the Dupont housings hang in the gap
+   between the pillars. Check they clear the base plate, and that the wires can
+   turn out sideways without being pinched. This is the check for
+   `esp_stack_h` — get it wrong and the back shell will not close.
+6. **Pillar collision.** The pillars sit under the board's corners, which is
+   also where the header rows run. Make sure no Dupont housing fouls a pillar.
+   If one does, the pillars need moving inboard or replacing with edge rails.
 
 ### What the test parts do not cover
 
-- `esp_stack_h`. The test pillars are 8 mm; the real cradle is 19.5 mm. Get this
-  wrong and the back shell will not close. Measure it with calipers.
 - The wedge angle, and the closure of the two shells against each other.
 
 ## Dimensions

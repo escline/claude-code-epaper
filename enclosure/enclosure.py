@@ -382,9 +382,17 @@ def build_fit_display():
 
 
 def build_fit_cradle():
-    """One short end of the ESP32 cradle: both pillars and their brackets."""
+    """One short end of the ESP32 cradle: both pillars and their brackets.
+
+    Pillars are the real height, not a token stub. At 8mm the headers alone
+    hung lower than the pillars and the board could not seat at all, so the
+    part tested nothing it was meant to. At full height it also checks the one
+    dimension nothing else can: whether the Dupont housings and the wires
+    turning out of them actually fit in esp_stack_h.
+    """
     w = 44.0
     base = 3.0
+    post = D["esp_post_h"]
     c = box(w, FIT_H, base)
 
     bx = 16.0
@@ -393,9 +401,9 @@ def build_fit_cradle():
     lip_h = P["esp_pcb_t"] + 1.5
     f = P["esp_fit"] / 2
     for (py, sy) in [(by0 - f, 1), (by0 + P["esp_w"] + f, -1)]:
-        c = c.fuse(cyl(3.0, 8.0, bx, py, base))
+        c = c.fuse(cyl(3.0, post, bx, py, base))
         c = c.fuse(box(10.0, br, lip_h + 1.0, bx - 5.0,
-                       py - br if sy > 0 else py, base + 8.0 - 1.0))
+                       py - br if sy > 0 else py, base + post - 1.0))
 
     return c.removeSplitter()
 
