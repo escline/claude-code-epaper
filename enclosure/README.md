@@ -39,8 +39,8 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 122.4 × 97.9 × 30.3 mm | **Face down** (bezel on the plate) |
-| `back-shell` | 122.4 × 114.4 × 50.8 mm | **Angled wedge face down** |
+| `front-shell` | 123.4 × 106.9 × 30.3 mm | **Face down** (bezel on the plate) |
+| `back-shell` | 123.4 × 123.4 × 50.8 mm | **Angled wedge face down** |
 | `test-display` | 56 × 50 × 13.9 mm | Flat, as oriented |
 | `test-cradle` | 44 × 50 × 14.1 mm | Flat, as oriented |
 
@@ -62,15 +62,20 @@ anything printed alongside collides with it and the test cannot be performed.
 
 ### test-display
 
-An L-shaped rail with a bezel lip and a screw boss.
+An L-shaped rail with a bezel lip and a screw boss. It reproduces the
+**top-left** corner, where the vertical lip is narrowest.
 
-1. **Pocket fit.** Set the module *face down* with its corner nested inside the
-   L rail. It should drop in without pushing, and not rock. Run a fingernail
-   from the rail onto the module's back: it should sit about 0.4 mm *below* the
-   rail. If it stands proud, `disp_panel_t` is too small and the real case will
-   not close — increase it by however far it stands out.
-2. **Bezel overlap.** Look through the window from the underside. You should see
-   the white panel with the lip covering its edge evenly on both sides.
+1. **Pocket fit.** Set the module *face down* with its **top-left** corner
+   nested inside the L rail. It should drop in without pushing, and not rock.
+   Run a fingernail from the rail onto the module's back: it should sit about
+   0.4 mm *below* the rail. If it stands proud, `disp_panel_t` is too small and
+   the real case will not close — increase it by however far it stands out.
+2. **Bezel overlap.** Look through the window from the underside. Along the top
+   edge you should see about 0.5 mm of the image covered by the lip. This is
+   the check for `active_dy`: too much lip means the offset is overstated, and
+   any bare white film or PCB showing means it is understated. The top corner
+   is used precisely because its 4.2 mm lip exposes that error — the bottom
+   corner's 12.2 mm lip would swallow it.
 3. **Heat-set insert.** Melt an M3 insert into the boss with a soldering iron at
    roughly 200 °C, pressing until flush. It should go in square without bulging
    the boss wall. Then check an M3 screw threads into it.
@@ -100,13 +105,24 @@ Measured with calipers:
 | `esp_stack_h` | 19.5 | Dupont housings end at 16.5; the extra 3 lets the wires turn out of the housing rather than being crushed against the lid |
 | `usb_span_y` | 26.0 | Ports are 20.7 outer-to-outer; the rest is cable-overmold clearance |
 
+Front-face borders, PCB edge to white film: left 8.19, right 8.19, top 2.24,
+bottom 10.5. Those give:
+
+| Parameter | Value | Derivation |
+| --- | --- | --- |
+| `active_dx` | 0.0 | (left − right) / 2 |
+| `active_dy` | 4.0 | (bottom − top) / 2 = 4.13 |
+
+Inserts are [ruthex](https://www.ruthex.de/en/collections/gewindeeinsatze/m3)
+RX-M3x5.7: 4.6 mm OD, 5.7 mm long, 4.0 mm hole. The short RX-M3Sx4.0 also fits
+the same hole, but the boss is 25 mm deep so there is no reason to give up the
+thread engagement.
+
 Still estimated:
 
 | Parameter | Current | What to measure |
 | --- | --- | --- |
-| `disp_panel_t` | 1.2 | Glass/film thickness bonded to the module's front. Total module thickness minus the 1.6 PCB |
-| `active_dx`, `active_dy` | 0, 0 | See below |
-| `insert_od`, `insert_len`, `insert_hole` | 4.6, 5.7, 4.0 | Your heat-set inserts. Hole should be a few tenths under the knurled OD |
+| `disp_panel_t` | 1.2 | Glass/film thickness on the module's front — total module thickness minus the 1.6 mm PCB. The pocket-fit test settles this |
 
 ### Active area vs visible panel
 
@@ -117,17 +133,27 @@ These are **not the same** and the difference matters:
 - **Visible white panel** — the e-paper film, measured 86.00 × 65.48 mm. About
   0.6 mm wider per side and 0.94 mm taller per side than the pixels.
 
-The window is sized to the **active area** (currently 83.8 × 62.6, i.e. 0.5 mm
-of bezel overlap per side) so no dead white margin shows around the image.
+The window is sized to the **active area** (83.8 × 62.6, i.e. 0.5 mm of bezel
+overlap per side) so no dead white margin shows around the image.
 
-To position it, measure on the module's **front** face, from each PCB edge to
-the nearest edge of the white panel, with the display the way up it will be
-mounted:
+### The image is not centred on the module
 
-```
-active_dx = (left_border  - right_border)  / 2
-active_dy = (bottom_border - top_border)   / 2
-```
+It sits 4 mm high, because the panel's FPC tail needs a wide border along the
+bottom. Measured borders to the film are 2.24 mm at the top against 10.5 mm at
+the bottom.
+
+With `center_window` true (the default) the **window** is centred in the case
+and the module is mounted 4 mm low to suit, so the outside looks symmetric:
+
+| | Left/right | Top/bottom |
+| --- | --- | --- |
+| Bezel border | 19.8 mm | 22.15 mm |
+
+Internally the lip is necessarily lopsided — 9.8 mm at the sides, 4.15 mm above
+the image, 12.15 mm below. Mounting the module off-centre costs case height on
+both sides, since the outside stays symmetric; that is why the case is 106.9 mm
+tall rather than 98. Set `center_window` false to centre the module instead and
+get a visibly lopsided bezel.
 
 `disp_w`, `disp_h`, `active_w` and `active_h` are Waveshare's published figures
 (103.0 × 78.5, active 84.8 × 63.6).

@@ -89,6 +89,29 @@ def main():
           "%.2f mm, expected %.2f, tolerance %.2f"
           % (ww, P["active_w"] - 2 * P["bezel_overlap"], 2 * step))
 
+    # The image sits 4mm above the module centre, so a window centred on the
+    # module would clip it. Check the window is centred on the image instead,
+    # and that the bezel overlaps the image on every side.
+    check("window centred on the image, not the module",
+          abs(D["win_x"] + D["win_w"] / 2 - D["active_cx"]) < 0.01 and
+          abs(D["win_y"] + D["win_h"] / 2 - D["active_cy"]) < 0.01,
+          "window centre (%.2f, %.2f) vs image centre (%.2f, %.2f)"
+          % (D["win_x"] + D["win_w"] / 2, D["win_y"] + D["win_h"] / 2,
+             D["active_cx"], D["active_cy"]))
+
+    ov_b = (D["active_cy"] - P["active_h"] / 2)
+    check("bezel overlaps the image on all sides",
+          D["win_y"] > ov_b and
+          D["win_y"] + D["win_h"] < D["active_cy"] + P["active_h"] / 2,
+          "%.2f mm overlap bottom" % (D["win_y"] - ov_b))
+
+    # Module must still clear the bosses after being shifted off-centre.
+    check("module clears the case wall after offset",
+          D["pocket_x"] >= D["margin"] - 0.01 and
+          D["pocket_y"] >= D["margin"] - 0.01,
+          "pocket at (%.2f, %.2f), margin %.2f"
+          % (D["pocket_x"], D["pocket_y"], D["margin"]))
+
     print("\nESP32 cradle")
     # Between the L brackets, across the board's width.
     zb = D["front_depth"] - D["esp_post_h"] - P["esp_pcb_t"] / 2

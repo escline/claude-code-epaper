@@ -45,9 +45,21 @@ P = {
     "disp_panel_t": 1.2,      # MEASURE: glass/film bonded to the front
     "active_w": 84.8,         # published active area
     "active_h": 63.6,
-    "active_dx": 0.0,         # MEASURE: active area offset from module centre
-    "active_dy": 0.0,
+    # Offset of the image from the module's centre, measured front-face borders
+    # to the white film: left 8.19, right 8.19, top 2.24, bottom 10.5.
+    #   dx = (left - right) / 2 = 0
+    #   dy = (bottom - top) / 2 = 4.13, taken as 4.0
+    # The big bottom border is the panel's FPC tail, which is why the image sits
+    # noticeably high on the board.
+    "active_dx": 0.0,
+    "active_dy": 4.0,
     "bezel_overlap": 0.5,     # bezel covers this much of the active area/side
+
+    # True: the window is centred in the case and the module is mounted
+    # off-centre to suit. The case looks symmetric, which is what anyone
+    # actually sees. False: module centred, window offset, visibly lopsided
+    # bezel (13.5mm above the image, 21.8mm below).
+    "center_window": True,
 
     # --- ESP32-S3 devkit (clone; measured with calipers) ------------------
     "esp_w": 28.2,            # short edge
@@ -112,9 +124,13 @@ def derived(p):
     # Boss and bezel border both follow the insert size, so changing inserts
     # cannot leave a boss overhanging the module pocket.
     d["boss_od"] = p["insert_hole"] + 2 * p["boss_wall"]
-    d["margin"] = max(p["margin_min"], d["boss_od"] + 1.5)
-    d["OW"] = p["disp_w"] + p["fit"] + 2 * d["margin"]
-    d["OH"] = p["disp_h"] + p["fit"] + 2 * d["margin"]
+    # +2.0 keeps the bosses clear of the pocket wall rather than tangent to it;
+    # tangent solids meet on coincident faces and upset the booleans.
+    d["margin"] = max(p["margin_min"], d["boss_od"] + 2.0)
+    # Mounting the module off-centre costs case size on both sides, since the
+    # outside stays symmetric.
+    d["OW"] = p["disp_w"] + p["fit"] + 2 * d["margin"] + 2 * abs(p["active_dx"])
+    d["OH"] = p["disp_h"] + p["fit"] + 2 * d["margin"] + 2 * abs(p["active_dy"])
     d["cavity_d"] = max(p["cavity_d_min"],
                         p["esp_stack_h"] + p["esp_pcb_t"] + p["esp_top_clear"])
     d["front_depth"] = p["bezel_t"] + d["mod_t"] + 0.4 + d["cavity_d"]
@@ -123,10 +139,22 @@ def derived(p):
     d["cavity_z"] = d["pocket_z"] + d["pocket_d"]
     d["win_w"] = p["active_w"] - 2 * p["bezel_overlap"]
     d["win_h"] = p["active_h"] - 2 * p["bezel_overlap"]
-    d["win_x"] = (d["OW"] - d["win_w"]) / 2 + p["active_dx"]
-    d["win_y"] = (d["OH"] - d["win_h"]) / 2 + p["active_dy"]
-    d["pocket_x"] = (d["OW"] - (p["disp_w"] + p["fit"])) / 2
-    d["pocket_y"] = (d["OH"] - (p["disp_h"] + p["fit"])) / 2
+    if p["center_window"]:
+        d["win_x"] = (d["OW"] - d["win_w"]) / 2
+        d["win_y"] = (d["OH"] - d["win_h"]) / 2
+        d["pocket_x"] = ((d["OW"] - (p["disp_w"] + p["fit"])) / 2
+                         - p["active_dx"])
+        d["pocket_y"] = ((d["OH"] - (p["disp_h"] + p["fit"])) / 2
+                         - p["active_dy"])
+    else:
+        d["win_x"] = (d["OW"] - d["win_w"]) / 2 + p["active_dx"]
+        d["win_y"] = (d["OH"] - d["win_h"]) / 2 + p["active_dy"]
+        d["pocket_x"] = (d["OW"] - (p["disp_w"] + p["fit"])) / 2
+        d["pocket_y"] = (d["OH"] - (p["disp_h"] + p["fit"])) / 2
+
+    # Where the image actually lands, for checking the window sits on it.
+    d["active_cx"] = d["pocket_x"] + (p["disp_w"] + p["fit"]) / 2 + p["active_dx"]
+    d["active_cy"] = d["pocket_y"] + (p["disp_h"] + p["fit"]) / 2 + p["active_dy"]
     d["boss_inset"] = d["boss_od"] / 2 + 1.5
     d["total_z"] = d["front_depth"] + p["lid_t"]
     d["wedge_z"] = d["total_z"] + p["rear_overhang"]
@@ -320,9 +348,15 @@ def build_fit_display():
     # Module pocket: an L rail the module's corner nests into.
     c = c.cut(box(w - m, FIT_H - m, D["pocket_d"] + 1, m, m, P["bezel_t"]))
 
-    # Viewing window, leaving the bezel lip between rail and opening.
-    lip_x = m + (P["disp_w"] - P["active_w"]) / 2 + P["bezel_overlap"]
-    lip_y = m + (P["disp_h"] - P["active_h"]) / 2 + P["bezel_overlap"]
+    # Lips are taken from the real shell rather than recomputed, so the two can
+    # never disagree.
+    #
+    # This reproduces the TOP-left corner, where the vertical lip is narrowest
+    # (4.2mm) because the image sits high on the module. Testing the bottom
+    # corner instead would hide a wrong active_dy behind its 12mm lip.
+    lip_x = m + (D["win_x"] - D["pocket_x"])
+    lip_y = m + ((D["pocket_y"] + P["disp_h"] + P["fit"])
+                 - (D["win_y"] + D["win_h"]))
     c = c.cut(box(w - lip_x, FIT_H - lip_y, P["bezel_t"] + 2, lip_x, lip_y, -1))
 
     # Boss bored for a heat-set insert, at the true corner inset.
