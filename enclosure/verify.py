@@ -211,7 +211,9 @@ def main():
     # whole plate. Nothing may stand above the pocket floor inside that
     # footprint or the module cannot seat - which is how a cradle sharing the
     # plate with the bezel corner went unnoticed.
-    zf = P["bezel_t"] + D["pocket_d"] + 0.5
+    # Sample inside the pocket, not behind it. Behind the pocket is where the
+    # bosses deliberately sit, reaching over the module's corners to retain it.
+    zf = P["bezel_t"] + D["pocket_d"] / 2
     obstructed = []
     for i in range(40):
         for j in range(40):
@@ -226,9 +228,20 @@ def main():
     # play here and the panel shifts in its pocket; too little and the front
     # shell will not close on it.
     play = D["pocket_d"] - D["mod_t"]
-    check("module is held without free play", 0.05 <= play <= 0.35,
-          "%.2f mm behind the module (pocket %.2f, module %.2f)"
+    check("gap behind the module is small", 0.05 <= play <= 0.35,
+          "%.2f mm (pocket %.2f, module %.2f)"
           % (play, D["pocket_d"], D["mod_t"]))
+
+    # That gap only means anything if a boss is actually across it. With a
+    # larger margin the bosses sat wholly outside the module's footprint and
+    # touched nothing, so nothing held the display in its pocket at all.
+    reach = (D["boss_inset"] + D["boss_od"] / 2) - D["margin"]
+    check("bosses overlap the module corners to retain it", reach >= 1.5,
+          "%.2f mm of overlap" % reach)
+    check("bosses stay out of the window",
+          D["boss_inset"] + D["boss_od"] / 2 < D["win_x"],
+          "boss reaches %.2f, window starts %.2f"
+          % (D["boss_inset"] + D["boss_od"] / 2, D["win_x"]))
 
     print("\nShell closure")
     # Measure the lid's register lip against the front shell's cavity at the
@@ -291,6 +304,18 @@ def main():
     check("stand screw sits behind the ESP32",
           zs > D["esp_board_z"],
           "screw at z %.1f, board at z %.1f" % (zs, D["esp_board_z"]))
+
+    # The screw path has to be clear through every part it crosses. It enters
+    # the stand, passes through the front shell's bottom wall, and lands in a
+    # boss on the lid.
+    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
+        blocked = [y for y in (0.5, 1.5, 2.5)
+                   if solid(front, (sx, y, zs))]
+        check("stand screw passes through the front shell at x=%.0f" % sx,
+              not blocked, "%d of 3 sample depths blocked" % len(blocked))
+        check("stand screw lands in lid material at x=%.0f" % sx,
+              solid(back, (sx + D["stand_boss"] / 2 - 0.5, 7.0, zs)),
+              "boss present beside the bore")
     # Front bottom edge and the rear of the wedge must both reach the desk.
     check("wedge drops the back by tan(tilt) x depth",
           abs(D["drop"] - D["wedge_z"] * __import__("math").tan(

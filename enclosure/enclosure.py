@@ -115,9 +115,12 @@ P = {
     # cavity, so 0.4 per side. 0.2 per side is inside FDM tolerance and the
     # halves may simply refuse to seat.
     "shell_fit": 0.8,
-    # Floor only - the real bezel border is derived so it always clears the
-    # screw bosses, whatever size the inserts make them.
-    "margin_min": 9.0,
+    # Bezel border. This only has to be a sound pocket wall - the bosses sit
+    # BEHIND the pocket in Z and never needed clearing sideways. Sizing it to
+    # clear them made the case 8mm larger in each direction and, worse, left
+    # the bosses entirely outside the module's footprint so they never touched
+    # it - nothing then retained the display in its pocket.
+    "margin_min": 6.0,
     "bezel_t": 2.0,           # front face thickness
     "wall": 3.0,
     "lid_t": 2.5,
@@ -159,9 +162,8 @@ def derived(p):
     # Boss and bezel border both follow the insert size, so changing inserts
     # cannot leave a boss overhanging the module pocket.
     d["boss_od"] = p["insert_hole"] + 2 * p["boss_wall"]
-    # +2.0 keeps the bosses clear of the pocket wall rather than tangent to it;
-    # tangent solids meet on coincident faces and upset the booleans.
-    d["margin"] = max(p["margin_min"], d["boss_od"] + 2.0)
+    # Structural floor for the pocket wall, not boss clearance.
+    d["margin"] = max(p["margin_min"], p["wall"] + 2.0)
     # Mounting the module off-centre costs case size on both sides, since the
     # outside stays symmetric.
     d["OW"] = p["disp_w"] + p["fit"] + 2 * d["margin"] + 2 * abs(p["active_dx"])
@@ -273,6 +275,14 @@ def build_front():
         bore = P["insert_len"] + 1.0
         s = s.cut(cyl(P["insert_hole"] / 2, bore, bx, by,
                       D["front_depth"] - bore))
+
+    # Clearance for the stand screws. Their bosses are on the lid, but the
+    # bosses sit forward of it - inside this shell - so the screws pass through
+    # this bottom wall on the way. Without these the stand cannot be fitted at
+    # all once the two shells are together.
+    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
+        s = s.cut(cyl(P["screw_clear"] / 2, P["wall"] + 2.0, sx, -1.0,
+                      D["stand_screw_z"], dr=(0, 1, 0)))
 
     # USB-C access through the right wall, aligned to where the board actually
     # sits on its posts. Both ports are on one short edge of the board.

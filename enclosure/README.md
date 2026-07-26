@@ -39,9 +39,9 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 123.4 × 106.9 × 30.5 mm | **Bezel face down** |
-| `back-shell` | 123.4 × 106.9 × 25.1 mm | **Lid outer face down** |
-| `stand` | 123.4 × 20.6 × 51.0 mm | **Angled underside down** |
+| `front-shell` | 115.4 × 98.9 × 30.5 mm | **Bezel face down** |
+| `back-shell` | 115.4 × 98.9 × 25.1 mm | **Lid outer face down** |
+| `stand` | 115.4 × 20.6 × 51.0 mm | **Angled underside down** |
 | `test-display` | 56 × 50 × 14.1 mm | Flat, as oriented |
 | `test-cradle` | 40 × 50 × 25.6 mm | Flat, as oriented |
 
@@ -52,7 +52,7 @@ plate's finish on the bezel, which is the surface you look at.
 
 The wedge cannot print attached to the back shell. It projects 18 mm past the
 lid's outer face, so lid-down puts that overhang below the bed, and standing
-the part on the wedge face turns the whole 123 × 107 lid vertical. Either way
+the part on the wedge face turns the whole 115 × 99 lid vertical. Either way
 the entire lid prints on supports.
 
 Split, both lie flat, and the wedge keeps its full rear projection — which is
@@ -143,7 +143,7 @@ slightly proud of the main board. Two consequences:
 - **Keep-out.** The tab measures 6 mm past the PCB edge, 18 mm wide.
   `verify.py` asserts both shells stay out of that envelope plus a 2 mm margin.
 
-Room around it once assembled: 33 mm of air beyond the tip to the case wall,
+Room around it once assembled: 29 mm of air beyond the tip to the case wall,
 21 mm back to the lid, 4 mm forward to the display.
 
 The tab still ends up behind the display module's ground plane, which is
@@ -221,12 +221,13 @@ and the module is mounted 4 mm low to suit, so the outside looks symmetric:
 
 | | Left/right | Top/bottom |
 | --- | --- | --- |
-| Bezel border | 19.8 mm | 22.15 mm |
+| Bezel border | 15.8 mm | 18.15 mm |
 
 Internally the lip is necessarily lopsided — 9.8 mm at the sides, 4.15 mm above
 the image, 12.15 mm below. Mounting the module off-centre costs case height on
-both sides, since the outside stays symmetric; that is why the case is 106.9 mm
-tall rather than 98. Set `center_window` false to centre the module instead and
+both sides, since the outside stays symmetric. That is why the case is 98.9 mm
+tall rather than 90.9, and why there is 14 mm of dead space above the module
+inside against 6 mm below. Set `center_window` false to centre the module and
 get a visibly lopsided bezel.
 
 `disp_w`, `disp_h`, `active_w` and `active_h` are Waveshare's published figures
