@@ -100,9 +100,9 @@ P = {
     # The WROOM's PCB antenna overhangs the end opposite the USB ports, sitting
     # slightly proud of the main board. Nothing may touch it, and it wants air
     # around it - plastic against a radiating element detunes it.
-    # MEASURE: how far the tab sticks out past the PCB edge, and how wide.
-    "esp_ant_len": 12.0,
-    "esp_ant_w": 20.0,
+    # Measured: protrudes 6mm past the PCB edge, 18mm wide.
+    "esp_ant_len": 6.0,
+    "esp_ant_w": 18.0,
     "esp_ant_keepout": 2.0,   # margin around the tab's own envelope
     # Lip on each rail, overhanging the board's front face. Without it nothing
     # holds the board back and it can fall against the display. The board

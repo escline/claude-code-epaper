@@ -124,9 +124,11 @@ slightly proud of the main board. Two consequences:
 
 - **No end stop at that end.** A wall there would foul the tab. The board is
   held along its length between the USB wall and the pedestals.
-- **Keep-out.** `verify.py` asserts both shells stay out of the tab's envelope
-  plus a 2 mm margin. Set `esp_ant_len` and `esp_ant_w` to your tab; the
-  defaults (12 × 20 mm) are read off photographs.
+- **Keep-out.** The tab measures 6 mm past the PCB edge, 18 mm wide.
+  `verify.py` asserts both shells stay out of that envelope plus a 2 mm margin.
+
+Room around it once assembled: 33 mm of air beyond the tip to the case wall,
+21 mm back to the lid, 4 mm forward to the display.
 
 The tab still ends up behind the display module's ground plane, which is
 unavoidable at this board length — the display is 103 mm wide and the ESP32 is
