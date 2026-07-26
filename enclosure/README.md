@@ -39,13 +39,29 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 123.4 × 106.9 × 30.5 mm | **Face down** (bezel on the plate) |
-| `back-shell` | 123.4 × 123.5 × 51.0 mm | **Angled wedge face down** |
-| `test-display` | 56 × 50 × 13.9 mm | Flat, as oriented |
+| `front-shell` | 123.4 × 106.9 × 30.5 mm | **Bezel face down** |
+| `back-shell` | 123.4 × 106.9 × 25.1 mm | **Lid outer face down** |
+| `stand` | 123.4 × 20.6 × 51.0 mm | **Angled underside down** |
+| `test-display` | 56 × 50 × 14.1 mm | Flat, as oriented |
 | `test-cradle` | 40 × 50 × 25.6 mm | Flat, as oriented |
 
-Neither shell needs supports in the orientation above. Face-down printing also
-puts the plate's finish on the bezel, which is the surface you look at.
+No supports anywhere in these orientations. Face-down printing also puts the
+plate's finish on the bezel, which is the surface you look at.
+
+### Why the stand is a separate part
+
+The wedge cannot print attached to the back shell. It projects 18 mm past the
+lid's outer face, so lid-down puts that overhang below the bed, and standing
+the part on the wedge face turns the whole 123 × 107 lid vertical. Either way
+the entire lid prints on supports.
+
+Split, both lie flat, and the wedge keeps its full rear projection — which is
+what stops the case tipping backwards. The case is only 33 mm deep, so at 18°
+the centre of mass sits almost over the rear contact edge without it.
+
+The stand takes two M3 screws into inserts in the lid, and the case also leans
+back into a 4 mm lip, so the screws are not carrying the load. `verify.py`
+asserts no part projects past the face it prints on.
 
 Suggested: 0.2 mm layers, 3 perimeters, 15% infill, PLA or PETG. PETG if it sits
 in direct sun — a black PLA case in a sunny window can creep, and e-paper itself

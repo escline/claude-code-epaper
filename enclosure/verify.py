@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import FreeCAD as App  # noqa: E402
 from enclosure import (  # noqa: E402
-    build_front, build_back, build_fit_display, build_fit_cradle, FIT_H, D, P)
+    build_front, build_back, build_stand, build_fit_display, build_fit_cradle,
+    FIT_H, D, P)
 
 FAILS = []
 
@@ -75,11 +76,13 @@ def outer_span(shape, p0, p1, samples=600):
 def main():
     front = build_front()
     back = build_back()
+    stand = build_stand()
     t_disp = build_fit_display()
     t_crad = build_fit_cradle()
 
     print("\nConnectivity (a floating feature shows up as an extra solid)")
     for nm, sh in [("front-shell", front), ("back-shell", back),
+                   ("stand", stand),
                    ("test-display", t_disp), ("test-cradle", t_crad)]:
         check("%s is one connected solid" % nm, len(sh.Solids) == 1,
               "%d solids" % len(sh.Solids))
@@ -254,7 +257,40 @@ def main():
           not solid(front, (D["OW"] - P["wall"] / 2, uy, uz)),
           "wall is open where the ports are")
 
+    print("\nPrintability")
+    # Each part must lie flat. The back shell only does so once the wedge is
+    # off it: the wedge projected past the lid's outer face, which put it below
+    # the bed lid-down and stood the lid vertical wedge-down.
+    # The criterion is that nothing sticks out past the face it prints on, not
+    # how deep the part is.
+    check("back shell does not project past its own lid",
+          back.BoundBox.ZMax <= D["total_z"] + 0.01,
+          "reaches z %.1f, lid outer face at %.1f"
+          % (back.BoundBox.ZMax, D["total_z"]))
+    check("stand is no taller than its wedge drop plus lip",
+          stand.BoundBox.YLength <= D["drop"] + P["stand_lip_h"] + 0.6,
+          "%.1f mm" % stand.BoundBox.YLength)
+
     print("\nStand")
+    # Screws have to find material in both parts.
+    zs = D["stand_screw_z"]
+    wedge_here = zs * __import__("math").tan(
+        __import__("math").radians(P["tilt_deg"]))
+    check("wedge is thick enough at the screw axis",
+          wedge_here >= P["stand_cbore"] + 3.0,
+          "%.1f mm of wedge, %.1f needed for the counterbore plus wall"
+          % (wedge_here, P["stand_cbore"] + 3.0))
+    check("lid boss is deep enough for the insert",
+          D["stand_boss_h"] >= P["insert_len"] + 1.0,
+          "%.1f mm boss vs %.1f insert"
+          % (D["stand_boss_h"], P["insert_len"] + 1.0))
+    check("lid boss stays clear of the board's housings",
+          D["stand_boss_h"] <= D["esp_y"] - 0.5,
+          "boss to y %.1f, board edge at y %.1f"
+          % (D["stand_boss_h"], D["esp_y"]))
+    check("stand screw sits behind the ESP32",
+          zs > D["esp_board_z"],
+          "screw at z %.1f, board at z %.1f" % (zs, D["esp_board_z"]))
     # Front bottom edge and the rear of the wedge must both reach the desk.
     check("wedge drops the back by tan(tilt) x depth",
           abs(D["drop"] - D["wedge_z"] * __import__("math").tan(

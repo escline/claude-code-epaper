@@ -143,6 +143,8 @@ P = {
     "tilt_deg": 18.0,
     "rear_overhang": 18.0,    # wedge projection behind the lid, for stability
     "foot_wall": 3.0,
+    "stand_lip_h": 4.0,       # lip behind the case, which it leans back into
+    "stand_cbore": 3.0,       # screw head recess on the underside
 
     # --- misc --------------------------------------------------------------
     "cable_slot_w": 14.0,     # display ribbon route past the electronics
@@ -199,6 +201,14 @@ def derived(p):
     d["esp_y"] = p["wall"] + 6.0
     d["esp_post_h"] = p["esp_stack_h"]
     d["esp_board_z"] = d["front_depth"] - d["esp_post_h"]  # board sits here
+
+    # Stand mounting. The screw axis has to sit where the wedge is thick enough
+    # to swallow a head, and behind the board so the boss does not foul it.
+    d["stand_boss"] = p["insert_hole"] + 2 * p["boss_wall"]
+    # Height is capped just below the board, or the boss reaches into the band
+    # where the Dupont housings hang off the board's lower edge.
+    d["stand_boss_h"] = d["esp_y"] - 1.0
+    d["stand_screw_z"] = d["front_depth"] - 5.0
     return d
 
 
@@ -350,31 +360,53 @@ def build_back():
                       P["wall"] + 4, D["OH"] - P["wall"] - P["cable_slot_h"] - 4,
                       z0 - 1))
 
-    # ---- wedge base ------------------------------------------------------
-    # Spans the full depth so the unit rests on the front bottom edge and the
-    # rear of the wedge. Hollow with an open bottom to keep print time sane.
-    w = box(D["OW"], D["drop"] + 1, D["wedge_z"], 0, -D["drop"], 0)
-    inner = box(D["OW"] - 2 * P["foot_wall"], D["drop"] + 1,
-                D["wedge_z"] - 2 * P["foot_wall"],
-                P["foot_wall"], -D["drop"] - 1, P["foot_wall"])
-    w = w.cut(inner)
+    # Mounting bosses for the stand. The lid alone is 2.5mm thick at its bottom
+    # edge - far too thin for an insert - so these give the screws something to
+    # bite into. They sit behind the board and merge into the rails.
+    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
+        lid = lid.fuse(box(D["stand_boss"], D["stand_boss_h"],
+                           D["stand_boss"] + 2.0,
+                           sx - D["stand_boss"] / 2, 0.0,
+                           z0 - D["stand_boss"] - 2.0))
+        lid = lid.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0,
+                          sx, -0.5, D["stand_screw_z"], dr=(0, 1, 0)))
 
-    # Trim everything below the desk plane: through (Y=0, Z=0), dropping
-    # tan(tilt) per unit of Z. That plane IS the printed bottom face.
-    #
-    # Sign matters: a positive rotation about +X tips the cutter's top face
-    # DOWN as Z increases, giving a wedge that is thickest at the back. The
-    # negative rotation sloped it the other way and removed the entire wedge.
-    cutter = box(D["OW"] + 20, D["drop"] * 3 + 40, D["wedge_z"] + 40,
-                 -10, -(D["drop"] * 3 + 40), -20)
+    return lid.removeSplitter()
+
+
+# ============================================================================
+# Stand - the wedge, as its own part
+#
+# Split off because the assembly cannot print in one piece. The wedge projects
+# past the lid's outer face, so printing lid-down puts that overhang below the
+# bed, and standing it on the wedge face turns the whole 123 x 107 lid vertical.
+# Separately, both parts lie flat.
+# ============================================================================
+def build_stand():
+    drop = D["drop"]
+    wz = D["wedge_z"]
+
+    s = box(D["OW"], drop + 0.01, wz, 0, -drop, 0)
+
+    # Cut to the desk plane - the face this prints on.
+    cutter = box(D["OW"] + 20, drop * 3 + 40, wz + 40,
+                 -10, -(drop * 3 + 40), -20)
     cutter.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), P["tilt_deg"])
-    w = w.cut(cutter)
+    s = s.cut(cutter)
 
-    # Ridge locating the front shell's bottom edge on top of the wedge.
-    w = w.cut(box(D["OW"] - 2 * P["foot_wall"], 2.0, D["total_z"],
-                  P["foot_wall"], -2.0, 0))
+    # Lip behind the case. It leans back into this, which is what stops the
+    # case sliding off; the screws only keep the two from separating.
+    s = s.fuse(box(D["OW"], P["stand_lip_h"], P["stand_lip_h"],
+                   0, 0, D["total_z"]))
 
-    return lid.fuse(w).removeSplitter()
+    # Screw clearance up into the lid's bosses, counterbored from underneath.
+    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
+        s = s.cut(cyl(P["screw_clear"] / 2, drop + 2, sx, -drop - 1,
+                      D["stand_screw_z"], dr=(0, 1, 0)))
+        s = s.cut(cyl(P["screw_head"] / 2, P["stand_cbore"], sx, -drop - 1,
+                      D["stand_screw_z"], dr=(0, 1, 0)))
+
+    return s.removeSplitter()
 
 
 # ============================================================================
@@ -486,6 +518,7 @@ def main():
     print("")
     export(build_front(), "front-shell")
     export(build_back(), "back-shell")
+    export(build_stand(), "stand")
     export(build_fit_display(), "test-display")
     export(build_fit_cradle(), "test-cradle")
     print("\nWrote STL + STEP to %s" % OUT)
