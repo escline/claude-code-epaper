@@ -18,14 +18,27 @@ Dupont jumper stack so nothing needs rewiring.
 Writes STL (printable) and STEP (editable in FreeCAD) to `enclosure/out/`.
 Every dimension lives in the `P` dict at the top of `enclosure.py`.
 
-To sanity-check geometry changes without opening a GUI:
+After any change, run the checks:
+
+```
+"C:/Program Files/FreeCAD 1.1/bin/freecadcmd.exe" enclosure/verify.py
+```
+
+It asserts what a render and a bounding box will not: that each part is a
+single connected solid (a floating feature shows up as an extra solid), and
+that the slots the hardware drops into measure what the hardware measures. Gaps
+are the longest *contiguous* free run along a ray — total free length counts
+the space either side of a pair of brackets and reports a slot far wider than
+the one the board actually has to fit.
+
+For a visual sense of the layout:
 
 ```
 "C:/Program Files/FreeCAD 1.1/bin/freecadcmd.exe" enclosure/preview.py
 ```
 
-which prints an ASCII side section showing the bezel, pocket, cavity, cradle
-and wedge.
+prints an ASCII side section showing the bezel, pocket, cavity, cradle and
+wedge.
 
 ## Parts
 
