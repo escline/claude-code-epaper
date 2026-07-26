@@ -59,9 +59,15 @@ Split, both lie flat, and the wedge keeps its full rear projection — which is
 what stops the case tipping backwards. The case is only 33 mm deep, so at 18°
 the centre of mass sits almost over the rear contact edge without it.
 
-The stand takes two M3 screws into inserts in the lid, and the case also leans
-back into a 4 mm lip, so the screws are not carrying the load. `verify.py`
-asserts no part projects past the face it prints on.
+**The wedge is thick at the front**, 13.4 mm, tapering to 3.3 mm at the back.
+Tilting a box backwards pivots it on its rear bottom edge and lifts the front,
+so the front is where the gap is. Thick-at-the-back tips the display face down.
+
+Nothing screws the stand on. The case leans back down the slope into a 4 mm
+lip, which is what holds it, and two 3 mm pegs drop into sockets in the front
+shell's bottom wall to stop it sliding sideways. Screws were tried: the only
+material deep enough for an M3 insert is that bottom wall, and at 5.4 mm in Z
+it is barely wider than the 4 mm insert hole.
 
 Suggested: 0.2 mm layers, 3 perimeters, 15% infill, PLA or PETG. PETG if it sits
 in direct sun — a black PLA case in a sunny window can creep, and e-paper itself

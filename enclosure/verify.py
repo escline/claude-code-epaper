@@ -74,6 +74,14 @@ def outer_span(shape, p0, p1, samples=600):
     return (last - first + 1) / samples * math.dist(p0, p1)
 
 
+def solid_depth(shape, p0, p1, samples=400):
+    """Total material along the segment - a thickness probe."""
+    n = sum(1 for i in range(samples)
+            if solid(shape, [p0[j] + (p1[j] - p0[j]) * (i + 0.5) / samples
+                             for j in range(3)]))
+    return n / samples * math.dist(p0, p1)
+
+
 def main():
     front = build_front()
     back = build_back()
@@ -303,47 +311,42 @@ def main():
           back.BoundBox.ZMax <= D["total_z"] + 0.01,
           "reaches z %.1f, lid outer face at %.1f"
           % (back.BoundBox.ZMax, D["total_z"]))
-    check("stand is no taller than its wedge drop plus lip",
-          stand.BoundBox.YLength <= D["drop"] + P["stand_lip_h"] + 0.6,
-          "%.1f mm" % stand.BoundBox.YLength)
-
     print("\nStand")
-    # Screws have to find material in both parts.
-    zs = D["stand_screw_z"]
-    wedge_here = zs * __import__("math").tan(
-        __import__("math").radians(P["tilt_deg"]))
-    check("wedge is thick enough at the screw axis",
-          wedge_here >= P["stand_cbore"] + 3.0,
-          "%.1f mm of wedge, %.1f needed for the counterbore plus wall"
-          % (wedge_here, P["stand_cbore"] + 3.0))
-    check("lid boss is deep enough for the insert",
-          D["stand_boss_h"] >= P["insert_len"] + 1.0,
-          "%.1f mm boss vs %.1f insert"
-          % (D["stand_boss_h"], P["insert_len"] + 1.0))
-    check("lid boss stays clear of the board's housings",
-          D["stand_boss_h"] <= D["esp_y"] - 0.5,
-          "boss to y %.1f, board edge at y %.1f"
-          % (D["stand_boss_h"], D["esp_y"]))
-    check("stand screw sits behind the ESP32",
-          zs > D["esp_board_z"],
-          "screw at z %.1f, board at z %.1f" % (zs, D["esp_board_z"]))
+    # Which end is thick decides which way the display leans, and getting it
+    # backwards tips the screen face down. Measure the real solid rather than
+    # trusting the arithmetic: the old check confirmed the slope magnitude
+    # while the sign was wrong.
+    def wedge_t(z):
+        return solid_depth(stand, (D["OW"] / 2, 0.5, z),
+                           (D["OW"] / 2, -D["stand_front_t"] - 2, z))
 
-    # The screw path has to be clear through every part it crosses. It enters
-    # the stand, passes through the front shell's bottom wall, and lands in a
-    # boss on the lid.
-    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
-        blocked = [y for y in (0.5, 1.5, 2.5)
-                   if solid(front, (sx, y, zs))]
-        check("stand screw passes through the front shell at x=%.0f" % sx,
-              not blocked, "%d of 3 sample depths blocked" % len(blocked))
-        check("stand screw lands in lid material at x=%.0f" % sx,
-              solid(back, (sx + D["stand_boss"] / 2 - 0.5, 7.0, zs)),
-              "boss present beside the bore")
-    # Front bottom edge and the rear of the wedge must both reach the desk.
-    check("wedge drops the back by tan(tilt) x depth",
-          abs(D["drop"] - D["wedge_z"] * __import__("math").tan(
-              __import__("math").radians(P["tilt_deg"]))) < 0.01,
-          "%.2f mm" % D["drop"])
+    t_front = wedge_t(1.0)
+    t_back = wedge_t(D["total_z"] - 1.0)
+    check("stand is thicker at the front than the back", t_front > t_back + 5,
+          "front %.1f mm, back %.1f mm - thick at the back tips it face down"
+          % (t_front, t_back))
+    got = (t_front - t_back) / (D["total_z"] - 2.0)
+    check("slope matches the tilt angle", abs(got - D["stand_slope"]) < 0.02,
+          "%.3f vs tan(%.0f) = %.3f" % (got, P["tilt_deg"], D["stand_slope"]))
+    check("rear of the stand is thick enough to print",
+          t_back >= P["stand_min_t"] - 0.5, "%.1f mm" % t_back)
+
+    # Pegs must land in the sockets.
+    for sx in D["peg_x"]:
+        check("stand peg at x=%.0f enters a socket" % sx,
+              not solid(front, (sx, P["peg_h"] / 2, P["peg_z"])),
+              "front shell is bored there")
+        check("socket is inside solid material at x=%.0f" % sx,
+              solid(front, (sx + P["peg_d"], P["peg_h"] / 2, P["peg_z"])),
+              "material beside the socket")
+
+    print("\nAssembly interference")
+    # The two shells must not want the same space. A lid boss added for the
+    # stand screws overlapped the front shell's bottom wall and nothing caught
+    # it, because no check compared the parts against each other.
+    clash = front.common(back)
+    check("front and back shells do not interpenetrate",
+          clash.Volume < 1.0, "%.2f mm3 of overlap" % clash.Volume)
 
     print("")
     if FAILS:

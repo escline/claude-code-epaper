@@ -164,7 +164,14 @@ P = {
     "rear_overhang": 18.0,    # wedge projection behind the lid, for stability
     "foot_wall": 3.0,
     "stand_lip_h": 4.0,       # lip behind the case, which it leans back into
-    "stand_cbore": 3.0,       # screw head recess on the underside
+    "stand_min_t": 3.0,       # thickness at the thin (rear) end
+    # Pegs locating the case on the stand. Screws were tried and abandoned:
+    # the only material deep enough to take an M3 insert is the front shell's
+    # bottom wall, which is 5.4mm in Z - barely wider than the 4mm insert hole.
+    "peg_d": 3.0,
+    "peg_h": 4.0,
+    "peg_z": 3.0,
+    "peg_fit": 0.4,
 
     # --- misc --------------------------------------------------------------
     "cable_slot_w": 14.0,     # display ribbon route past the electronics
@@ -228,13 +235,12 @@ def derived(p):
     d["esp_post_h"] = p["esp_stack_h"]
     d["esp_board_z"] = d["front_depth"] - d["esp_post_h"]  # board sits here
 
-    # Stand mounting. The screw axis has to sit where the wedge is thick enough
-    # to swallow a head, and behind the board so the boss does not foul it.
-    d["stand_boss"] = p["insert_hole"] + 2 * p["boss_wall"]
-    # Height is capped just below the board, or the boss reaches into the band
-    # where the Dupont housings hang off the board's lower edge.
-    d["stand_boss_h"] = d["esp_y"] - 1.0
-    d["stand_screw_z"] = d["front_depth"] - 5.0
+    # Stand. Thick at the FRONT, tapering to the back: tilting a box backwards
+    # pivots it on its rear bottom edge and lifts the front, so that is where
+    # the gap is. Thick-at-the-back tips the display face down.
+    d["stand_slope"] = math.tan(math.radians(p["tilt_deg"]))
+    d["stand_front_t"] = p["stand_min_t"] + d["total_z"] * d["stand_slope"]
+    d["peg_x"] = [d["OW"] * 0.25, d["OW"] * 0.75]
     return d
 
 
@@ -317,13 +323,12 @@ def build_front():
         s = s.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] - 0.2, px, py,
                        D["pocket_z"]))
 
-    # Clearance for the stand screws. Their bosses are on the lid, but the
-    # bosses sit forward of it - inside this shell - so the screws pass through
-    # this bottom wall on the way. Without these the stand cannot be fitted at
-    # all once the two shells are together.
-    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
-        s = s.cut(cyl(P["screw_clear"] / 2, P["wall"] + 2.0, sx, -1.0,
-                      D["stand_screw_z"], dr=(0, 1, 0)))
+    # Sockets for the stand's locating pegs. This bottom-front block is the
+    # only part of the shell with real depth below the cavity - 10mm of it,
+    # because the pocket starts higher up.
+    for sx in D["peg_x"]:
+        s = s.cut(cyl((P["peg_d"] + P["peg_fit"]) / 2, P["peg_h"] + 0.5,
+                      sx, -0.25, P["peg_z"], dr=(0, 1, 0)))
 
     # USB-C access through the right wall, aligned to where the board actually
     # sits on its posts. Both ports are on one short edge of the board.
@@ -357,6 +362,14 @@ def build_back():
                 P["wall"] + sf / 2 + lip_w, P["wall"] + sf / 2 + lip_w,
                 z0 - lip_t - 1)
     lid = lid.fuse(lip_o.cut(lip_i))
+
+    # The front shell's corner bosses run the full depth of the cavity and
+    # arrive right where the register lip sits, so the lip has to step around
+    # them. Nothing caught this until the shells were checked against each
+    # other rather than each on its own.
+    for (bx, by) in boss_positions():
+        lid = lid.cut(cyl(D["boss_od"] / 2 + 0.4, lip_t + 2, bx, by,
+                          z0 - lip_t - 1))
 
     # Counterbored clearance holes, screws entering from behind.
     for (bx, by) in boss_positions():
@@ -421,17 +434,6 @@ def build_back():
                            px - P["mod_post"] / 2, py - P["mod_post"] / 2,
                            D["cavity_z"]))
 
-    # Mounting bosses for the stand. The lid alone is 2.5mm thick at its bottom
-    # edge - far too thin for an insert - so these give the screws something to
-    # bite into. They sit behind the board and merge into the rails.
-    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
-        lid = lid.fuse(box(D["stand_boss"], D["stand_boss_h"],
-                           D["stand_boss"] + 2.0,
-                           sx - D["stand_boss"] / 2, 0.0,
-                           z0 - D["stand_boss"] - 2.0))
-        lid = lid.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0,
-                          sx, -0.5, D["stand_screw_z"], dr=(0, 1, 0)))
-
     return lid.removeSplitter()
 
 
@@ -444,28 +446,34 @@ def build_back():
 # Separately, both parts lie flat.
 # ============================================================================
 def build_stand():
-    drop = D["drop"]
+    t = P["stand_min_t"]
+    ft = D["stand_front_t"]
     wz = D["wedge_z"]
+    tz = D["total_z"]
 
-    s = box(D["OW"], drop + 0.01, wz, 0, -drop, 0)
+    # Drawn as a side profile and extruded, rather than cut from a block with
+    # a rotated plane. The rotation approach got its sign wrong and produced a
+    # wedge thick at the back, which tips the display face down.
+    #
+    #   y=0    ______________________  <- case sits on this
+    #         |                      |
+    #         |  thick at the FRONT  |___
+    #          \                         | t
+    #           \________________________|
+    #        z=0        tz              wz
+    pts = [App.Vector(0, 0, 0), App.Vector(0, 0, wz),
+           App.Vector(0, -t, wz), App.Vector(0, -t, tz),
+           App.Vector(0, -ft, 0), App.Vector(0, 0, 0)]
+    s = Part.Face(Part.makePolygon(pts)).extrude(App.Vector(D["OW"], 0, 0))
 
-    # Cut to the desk plane - the face this prints on.
-    cutter = box(D["OW"] + 20, drop * 3 + 40, wz + 40,
-                 -10, -(drop * 3 + 40), -20)
-    cutter.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), P["tilt_deg"])
-    s = s.cut(cutter)
+    # Lip behind the case. Gravity pulls the case back down the slope into it,
+    # which is what actually holds the assembly together.
+    s = s.fuse(box(D["OW"], P["stand_lip_h"], P["stand_lip_h"], 0, 0, tz))
 
-    # Lip behind the case. It leans back into this, which is what stops the
-    # case sliding off; the screws only keep the two from separating.
-    s = s.fuse(box(D["OW"], P["stand_lip_h"], P["stand_lip_h"],
-                   0, 0, D["total_z"]))
-
-    # Screw clearance up into the lid's bosses, counterbored from underneath.
-    for sx in (D["OW"] * 0.25, D["OW"] * 0.75):
-        s = s.cut(cyl(P["screw_clear"] / 2, drop + 2, sx, -drop - 1,
-                      D["stand_screw_z"], dr=(0, 1, 0)))
-        s = s.cut(cyl(P["screw_head"] / 2, P["stand_cbore"], sx, -drop - 1,
-                      D["stand_screw_z"], dr=(0, 1, 0)))
+    # Locating pegs into the front shell's bottom wall.
+    for sx in D["peg_x"]:
+        s = s.fuse(cyl(P["peg_d"] / 2, P["peg_h"], sx, 0, P["peg_z"],
+                       dr=(0, 1, 0)))
 
     return s.removeSplitter()
 
