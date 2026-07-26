@@ -70,6 +70,7 @@ P = {
     "disp_hole_d": 3.0,
     # 2.6mm pin, which still clears if the hole is anywhere from 2.8 to 3.2.
     "pin_clear": 0.4,
+    "mod_post": 7.0,          # lid post pressing the module's back corners
 
     # True: the window is centred in the case and the module is mounted
     # off-centre to suit. The case looks symmetric, which is what anyone
@@ -124,12 +125,19 @@ P = {
     # cavity, so 0.4 per side. 0.2 per side is inside FDM tolerance and the
     # halves may simply refuse to seat.
     "shell_fit": 0.8,
-    # Bezel border. This only has to be a sound pocket wall - the bosses sit
-    # BEHIND the pocket in Z and never needed clearing sideways. Sizing it to
-    # clear them made the case 8mm larger in each direction and, worse, left
-    # the bosses entirely outside the module's footprint so they never touched
-    # it - nothing then retained the display in its pocket.
-    "margin_min": 6.0,
+    # Bezel border, and it does have to clear the screw bosses.
+    #
+    # The display is lowered into its pocket through the cavity, so every point
+    # of its footprint must be clear from the pocket all the way back to the
+    # lid. A boss anywhere inside that footprint blocks the module completely -
+    # it cannot be tilted or slid past, since the pocket has only 0.4mm of
+    # play. Two attempts at a smaller margin both foundered on this: a boss
+    # beside the module's corner, then a boss on the mounting hole with a pin
+    # through it, whose 8mm shoulder is just as impassable as the boss was.
+    #
+    # Pins are the exception - at 2.6mm they thread through the mounting holes.
+    # Anything larger lives outside the footprint or not at all.
+    "margin_min": 10.0,
     "bezel_t": 2.0,           # front face thickness
     "wall": 3.0,
     "lid_t": 2.5,
@@ -205,7 +213,10 @@ def derived(p):
     # Hole centre measured in from the pocket edge, so the module's clearance
     # is taken into account.
     d["hole_from_pocket"] = p["fit"] / 2 + p["disp_hole_inset"]
-    d["boss_inset"] = d["margin"] + d["hole_from_pocket"]
+    # Screw bosses live at the case corners, clear of the module. Pins sit
+    # separately, on the module's mounting holes.
+    d["boss_inset"] = d["boss_od"] / 2 + 1.5
+    d["pin_inset"] = d["margin"] + d["hole_from_pocket"]
     d["total_z"] = d["front_depth"] + p["lid_t"]
     d["wedge_z"] = d["total_z"] + p["rear_overhang"]
     d["drop"] = math.tan(math.radians(p["tilt_deg"])) * d["wedge_z"]
@@ -248,12 +259,17 @@ def cyl(r, h, x=0.0, y=0.0, z=0.0, dr=(0, 0, 1)):
 
 
 def boss_positions():
-    """Boss centres, sitting on the module's four mounting holes.
+    """Screw boss centres, at the case corners and clear of the module."""
+    i = D["boss_inset"]
+    return [(i, i), (D["OW"] - i, i), (i, D["OH"] - i),
+            (D["OW"] - i, D["OH"] - i)]
 
-    Not the case corners. At this margin a corner boss overlaps the module, and
-    since the display is fitted through the cavity that stops it going in at
-    all. On the holes, a stepped pin passes through the board instead - which
-    locates it as well as retaining it.
+
+def pin_positions():
+    """Locating pins, on the module's four corner mounting holes.
+
+    These may sit inside the module's footprint because they are narrower than
+    the holes they pass through. Anything wider could not be assembled.
     """
     h = D["hole_from_pocket"]
     x0 = D["pocket_x"] + h
@@ -290,13 +306,16 @@ def build_front():
     # rear face and stops short of the module.
     for (bx, by) in boss_positions():
         s = s.fuse(cyl(D["boss_od"] / 2, D["cavity_d"], bx, by, D["cavity_z"]))
-        # Pin up through the module's mounting hole. It runs 1mm into the boss
-        # so the two share volume rather than meeting on a plane.
-        s = s.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] + 1.0, bx, by,
-                       D["pocket_z"]))
         bore = P["insert_len"] + 1.0
         s = s.cut(cyl(P["insert_hole"] / 2, bore, bx, by,
                       D["front_depth"] - bore))
+
+    # Locating pins through the module's mounting holes. They stop just short
+    # of the pocket's back face - a pin standing proud would be one more thing
+    # in the module's path.
+    for (px, py) in pin_positions():
+        s = s.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] - 0.2, px, py,
+                       D["pocket_z"]))
 
     # Clearance for the stand screws. Their bosses are on the lid, but the
     # bosses sit forward of it - inside this shell - so the screws pass through
@@ -392,6 +411,16 @@ def build_back():
                       P["wall"] + 4, D["OH"] - P["wall"] - P["cable_slot_h"] - 4,
                       z0 - 1))
 
+    # Posts reaching forward to the module's back face. Retention has to come
+    # from this shell: anything on the front shell inside the module's
+    # footprint would block the module going in, and the screw bosses are
+    # necessarily outside it. These land at the module's corners, on the same
+    # pin positions, and clear the ESP32 and its rails.
+    for (px, py) in pin_positions():
+        lid = lid.fuse(box(P["mod_post"], P["mod_post"], D["cavity_d"],
+                           px - P["mod_post"] / 2, py - P["mod_post"] / 2,
+                           D["cavity_z"]))
+
     # Mounting bosses for the stand. The lid alone is 2.5mm thick at its bottom
     # edge - far too thin for an insert - so these give the screws something to
     # bite into. They sit behind the board and merge into the rails.
@@ -473,13 +502,16 @@ def build_fit_display():
                  - (D["win_y"] + D["win_h"]))
     c = c.cut(box(w - lip_x, FIT_H - lip_y, P["bezel_t"] + 2, lip_x, lip_y, -1))
 
-    # Boss and locating pin at the true position, on the module's mounting
-    # hole. The pin is what lets the boss share the corner with the board.
+    # Screw boss at the case corner, clear of the module, plus the locating pin
+    # inside the pocket on the module's mounting hole. Both at true positions,
+    # so this checks the pin lines up with the hole and the boss stays out of
+    # the module's way.
     bp = D["boss_inset"]
-    c = c.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] + 1.0, bp, bp, P["bezel_t"]))
     c = c.fuse(cyl(D["boss_od"] / 2, P["insert_len"] + 3.0, bp, bp, base))
     c = c.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0, bp, bp,
                   base + 2.0))
+    pp = D["pin_inset"]
+    c = c.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] - 0.2, pp, pp, P["bezel_t"]))
 
     return c.removeSplitter()
 

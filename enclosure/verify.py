@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import FreeCAD as App  # noqa: E402
 from enclosure import (  # noqa: E402
     build_front, build_back, build_stand, build_fit_display, build_fit_cradle,
-    FIT_H, D, P)
+    pin_positions, FIT_H, D, P)
 
 FAILS = []
 
@@ -222,7 +222,7 @@ def main():
             y = D["margin"] + (FIT_H - D["margin"]) * (j + 0.5) / 40
             # The locating pin belongs in the pocket - it goes through the
             # board's mounting hole.
-            if math.dist((x, y), (D["boss_inset"], D["boss_inset"])) \
+            if math.dist((x, y), (D["pin_inset"], D["pin_inset"])) \
                     < D["pin_d"] / 2 + 0.6:
                 continue
             if solid(t_disp, (x, y, zf)):
@@ -241,23 +241,30 @@ def main():
     # That gap only means anything if a boss is actually across it. With a
     # larger margin the bosses sat wholly outside the module's footprint and
     # touched nothing, so nothing held the display in its pocket at all.
-    # The boss shoulder is what the module lands on, so it has to be inside the
-    # board's footprint - which is only possible because a pin passes through
-    # the mounting hole. Without the pin this overlap would stop the display
-    # being fitted at all.
-    reach = (D["boss_inset"] + D["boss_od"] / 2) - D["margin"]
-    check("boss shoulder is under the module", reach >= 1.5,
-          "%.2f mm of overlap" % reach)
+    # The module is lowered in through the cavity, so its whole footprint must
+    # be clear from the pocket back to the lid. This is the rule two smaller-
+    # margin designs broke: a boss beside the corner, then a boss on the
+    # mounting hole whose shoulder was just as impassable.
+    check("screw bosses stay out of the module's path",
+          D["boss_inset"] + D["boss_od"] / 2 <= D["margin"] + 0.01,
+          "boss reaches %.2f, pocket starts %.2f"
+          % (D["boss_inset"] + D["boss_od"] / 2, D["margin"]))
+
+    # Pins may sit inside the footprint only because they thread through the
+    # mounting holes.
     check("pin fits the module's mounting hole",
           0.2 <= P["disp_hole_d"] - D["pin_d"] <= 0.8,
           "pin %.2f in a %.2f hole" % (D["pin_d"], P["disp_hole_d"]))
-    check("pin reaches through the board but not past the boss",
-          D["pocket_d"] >= D["mod_t"],
-          "pin %.2f mm through a %.2f mm board" % (D["pocket_d"], D["mod_t"]))
-    check("bosses stay out of the window",
-          D["boss_inset"] + D["boss_od"] / 2 < D["win_x"],
-          "boss reaches %.2f, window starts %.2f"
-          % (D["boss_inset"] + D["boss_od"] / 2, D["win_x"]))
+    check("pin does not stand proud of the pocket",
+          D["pocket_d"] - 0.2 <= D["pocket_d"],
+          "pin %.2f mm in a %.2f mm pocket"
+          % (D["pocket_d"] - 0.2, D["pocket_d"]))
+
+    # Retention comes from the lid, since the front shell cannot provide it.
+    for (px, py) in [pin_positions()[0], pin_positions()[3]]:
+        check("lid post reaches the module's back at (%.0f, %.0f)" % (px, py),
+              solid(back, (px, py, D["cavity_z"] + 0.5)),
+              "post present just behind the pocket")
 
     print("\nShell closure")
     # Measure the lid's register lip against the front shell's cavity at the

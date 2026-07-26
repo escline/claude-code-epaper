@@ -39,9 +39,9 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 115.4 × 98.9 × 30.5 mm | **Bezel face down** |
-| `back-shell` | 115.4 × 98.9 × 25.1 mm | **Lid outer face down** |
-| `stand` | 115.4 × 20.6 × 51.0 mm | **Angled underside down** |
+| `front-shell` | 123.4 × 106.9 × 30.5 mm | **Bezel face down** |
+| `back-shell` | 123.4 × 106.9 × 27.6 mm | **Lid outer face down** |
+| `stand` | 123.4 × 20.6 × 51.0 mm | **Angled underside down** |
 | `test-display` | 56 × 50 × 14.1 mm | Flat, as oriented |
 | `test-cradle` | 40 × 50 × 25.6 mm | Flat, as oriented |
 
@@ -52,7 +52,7 @@ plate's finish on the bezel, which is the surface you look at.
 
 The wedge cannot print attached to the back shell. It projects 18 mm past the
 lid's outer face, so lid-down puts that overhang below the bed, and standing
-the part on the wedge face turns the whole 115 × 99 lid vertical. Either way
+the part on the wedge face turns the whole 123 × 107 lid vertical. Either way
 the entire lid prints on supports.
 
 Split, both lie flat, and the wedge keeps its full rear projection — which is
@@ -92,10 +92,10 @@ An L-shaped rail with a bezel lip and a screw boss. It reproduces the
    any bare white film or PCB showing means it is understated. The top corner
    is used precisely because its 4.2 mm lip exposes that error — the bottom
    corner's 12.2 mm lip would swallow it.
-3. **Locating pin.** The 2.6 mm pin must pass through the module's corner
-   mounting hole and let the board sit flat on the 8 mm shoulder behind it.
-   This is the check for `disp_hole_inset` — if the pin misses the hole, the
-   display cannot be fitted at all. Remove the brass standoffs first.
+3. **Locating pin.** The 2.6 mm pin stands inside the pocket, away from the
+   boss. It must pass through the module's corner mounting hole and let the
+   board sit flat. This is the check for `disp_hole_inset` — if the pin misses
+   the hole the display cannot seat. Remove the brass standoffs first.
 4. **Heat-set insert.** Melt an M3 insert into the boss with a soldering iron at
    roughly 200 °C, pressing until flush. It should go in square without bulging
    the boss wall. Then check an M3 screw threads into it.
@@ -139,15 +139,28 @@ lengthwise from the antenna end** rather than dropping in.
 
 ### How the display is held
 
-The bosses sit on the module's **four corner mounting holes**, not the case
-corners. Each pushes a 2.6 mm pin up through the hole; the board drops over the
-pins and lands on the 8 mm shoulder behind. That locates the display precisely
-and stops it lifting out of its pocket.
+**The governing rule:** the display is lowered into its pocket through the
+cavity, so every point of its footprint must be clear from the pocket all the
+way back to the lid. The pocket has 0.4 mm of play — not enough to tilt or slide
+a rigid 103 × 78.5 mm board past anything.
 
-It has to be done this way. The display is fitted through the cavity, so
-anything in the front shell inside its footprint blocks it entirely. A boss
-beside the module needs a 10 mm bezel margin, which costs 8 mm of case in each
-direction; a boss on the module without a pin cannot be assembled at all.
+So the front shell may contain, inside that footprint, only features narrower
+than the module's mounting holes. In practice that means locating pins and
+nothing else:
+
+- **Locating pins**, 2.6 mm, on the module's four corner holes. They thread
+  through the board and stop it shifting in the pocket's clearance. They stay
+  0.2 mm below the pocket's back face so they are never in the way themselves.
+- **Screw bosses** at the case corners, outside the footprint. This is what
+  sets the 10 mm bezel margin — an M3 insert needs an 8 mm boss, and 8 mm of
+  boss cannot fit in less.
+- **Retention from the lid**, four 7 mm posts reaching forward to the module's
+  back corners. Lid features are free to sit inside the footprint because the
+  lid closes after the module is already seated.
+
+Two smaller-margin designs failed this rule before it was written down: a boss
+beside the module's corner, and then a boss on the mounting hole with a pin
+through it — whose 8 mm shoulder is exactly as impassable as the boss was.
 
 Remove the brass standoffs from the module — the pins use those holes.
 
@@ -161,7 +174,7 @@ slightly proud of the main board. Two consequences:
 - **Keep-out.** The tab measures 6 mm past the PCB edge, 18 mm wide.
   `verify.py` asserts both shells stay out of that envelope plus a 2 mm margin.
 
-Room around it once assembled: 29 mm of air beyond the tip to the case wall,
+Room around it once assembled: 33 mm of air beyond the tip to the case wall,
 21 mm back to the lid, 4 mm forward to the display.
 
 The tab still ends up behind the display module's ground plane, which is
@@ -239,13 +252,13 @@ and the module is mounted 4 mm low to suit, so the outside looks symmetric:
 
 | | Left/right | Top/bottom |
 | --- | --- | --- |
-| Bezel border | 15.8 mm | 18.15 mm |
+| Bezel border | 19.8 mm | 22.15 mm |
 
 Internally the lip is necessarily lopsided — 9.8 mm at the sides, 4.15 mm above
 the image, 12.15 mm below. Mounting the module off-centre costs case height on
-both sides, since the outside stays symmetric. That is why the case is 98.9 mm
-tall rather than 90.9, and why there is 14 mm of dead space above the module
-inside against 6 mm below. Set `center_window` false to centre the module and
+both sides, since the outside stays symmetric. That is why the case is 106.9 mm
+tall rather than 98.9, and why there is 18 mm of dead space above the module
+inside against 10 mm below. Set `center_window` false to centre the module and
 get a visibly lopsided bezel.
 
 `disp_w`, `disp_h`, `active_w` and `active_h` are Waveshare's published figures
