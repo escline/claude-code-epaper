@@ -65,10 +65,11 @@ P = {
     # a pin through, which is the only way a boss and the board can share a
     # corner - the display is fitted through the cavity, so anything in the
     # front shell inside its footprint stops it going in at all.
-    # MEASURE: hole centre to each PCB edge, and the hole diameter.
-    "disp_hole_inset": 4.0,
+    # Measured: hole centre 3mm in from both edges.
+    "disp_hole_inset": 3.0,
     "disp_hole_d": 3.0,
-    "pin_clear": 0.4,         # pin is this much under the hole
+    # 2.6mm pin, which still clears if the hole is anywhere from 2.8 to 3.2.
+    "pin_clear": 0.4,
 
     # True: the window is centred in the case and the module is mounted
     # off-centre to suit. The case looks symmetric, which is what anyone
