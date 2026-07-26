@@ -51,6 +51,21 @@ def span(shape, p0, p1, samples=600):
     return best / samples * math.dist(p0, p1)
 
 
+def solid_span(shape, p0, p1, samples=600):
+    """Longest contiguous run of material along the segment p0->p1."""
+    import math
+    best = run = 0
+    for i in range(samples):
+        t = (i + 0.5) / samples
+        p = [p0[j] + (p1[j] - p0[j]) * t for j in range(3)]
+        if solid(shape, p):
+            run += 1
+            best = max(best, run)
+        else:
+            run = 0
+    return best / samples * math.dist(p0, p1)
+
+
 def main():
     front = build_front()
     back = build_back()
@@ -144,6 +159,26 @@ def main():
                 obstructed.append((round(x, 1), round(y, 1)))
     check("nothing obstructs the seated module", not obstructed,
           "%d sample points blocked" % len(obstructed))
+
+    print("\nShell closure")
+    # Measure the lid's register lip against the front shell's cavity at the
+    # depth where they actually engage.
+    # This is a difference of two sampled measurements, so its error is twice
+    # the step. At the default 600 samples that is +-0.4mm on a 0.8mm target,
+    # which would make the check meaningless - sample it finely.
+    zl = D["front_depth"] - 0.8
+    y = D["OH"] / 2
+    n = 4000
+    cav = span(front, (0, y, zl), (D["OW"], y, zl), n)       # open run in shell
+    lip = solid_span(back, (0, y, zl), (D["OW"], y, zl), n)  # lip run on lid
+    gap = cav - lip
+    tol = 2 * D["OW"] / n
+    check("lid lip fits the front shell cavity", gap > 0.5,
+          "cavity %.2f, lip %.2f, clearance %.2f total (+-%.2f)"
+          % (cav, lip, gap, tol))
+    check("shell clearance matches shell_fit",
+          abs(gap - P["shell_fit"]) < 3 * tol,
+          "%.2f vs %.2f" % (gap, P["shell_fit"]))
 
     print("\nUSB opening")
     uy = D["esp_y"] + P["esp_w"] / 2

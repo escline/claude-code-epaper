@@ -82,6 +82,10 @@ P = {
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
+    # Total clearance between the lid's register lip and the front shell's
+    # cavity, so 0.4 per side. 0.2 per side is inside FDM tolerance and the
+    # halves may simply refuse to seat.
+    "shell_fit": 0.8,
     # Floor only - the real bezel border is derived so it always clears the
     # screw bosses, whatever size the inserts make them.
     "margin_min": 9.0,
@@ -252,10 +256,11 @@ def build_back():
 
     # Register lip that drops into the front shell's cavity.
     lip_t = 1.6
-    lid = lid.fuse(box(D["OW"] - 2 * P["wall"] - 0.4,
-                       D["OH"] - 2 * P["wall"] - 0.4,
+    sf = P["shell_fit"]
+    lid = lid.fuse(box(D["OW"] - 2 * P["wall"] - sf,
+                       D["OH"] - 2 * P["wall"] - sf,
                        lip_t,
-                       P["wall"] + 0.2, P["wall"] + 0.2, z0 - lip_t))
+                       P["wall"] + sf / 2, P["wall"] + sf / 2, z0 - lip_t))
 
     # Counterbored clearance holes, screws entering from behind.
     for (bx, by) in boss_positions():
