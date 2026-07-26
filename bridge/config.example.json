@@ -12,6 +12,8 @@
   "port": 8787,
   "_comment_idle": "ms of silence after which a 'working' status decays to 'idle'",
   "idleAfterMs": 300000,
+  "_comment_session_ttl": "ms after which a session with no traffic is assumed gone (force-kill backstop). Long on purpose: an idle-but-open session is silent, and dropping it early puts the weather screen over a live terminal.",
+  "sessionTtlMs": 28800000,
   "_comment_ha": "Home Assistant MQTT discovery. discoveryPrefix must match HA's MQTT integration setting (default 'homeassistant').",
   "homeassistant": {
     "enabled": true,

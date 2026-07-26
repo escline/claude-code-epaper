@@ -10,6 +10,7 @@
  *   node bridge.js hook <Event>  called by a Claude Code hook
  *   node bridge.js status        diagnostics
  *   node bridge.js demo          publish a fake state to exercise the panel
+ *   node bridge.js demo weather  pin sessions to 0 to show the weather screen
  *
  * Why a daemon: statusline runs on nearly every message. Doing an MQTT
  * connect/publish/disconnect each time would add latency to the status line and
@@ -35,6 +36,7 @@ function loadConfig() {
     topics: { state: 'claude/display/state', bridge: 'claude/display/bridge' },
     port: 8787,
     idleAfterMs: 300000,
+    sessionTtlMs: 28800000,
   };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -291,6 +293,11 @@ function runDaemon() {
   const liveSessions = new Map();
   let lastEventAt = Date.now();
 
+  // demo mode may pin the session count, so the panel's weather screen can be
+  // exercised without closing every terminal first. null = not pinned, which
+  // is the only state any real event can leave it in.
+  let demoSessions = null;
+
   // Created only after we win the port, below. A daemon that loses the race
   // must never open an MQTT session: exiting would drop the connection without
   // a clean DISCONNECT, the broker would fire its last will, and the retained
@@ -310,6 +317,14 @@ function runDaemon() {
     seeded = true;
     clearTimeout(seedTimer);
     if (client) client.unsubscribe(cfg.topics.state);
+    // Publish once now that seeding is settled. Everything we adopted is kept;
+    // the only field this corrects is the session count, which publish() takes
+    // from our own (empty) map. Without it, a daemon started at login with
+    // Claude Code closed would leave yesterday's retained "1 session" on the
+    // broker, and the panel would sit on a stale IDLE forever instead of
+    // handing the screen to the weather. Nothing was retained means nothing to
+    // clobber, so this is safe on a fresh broker too.
+    publish();
   }
 
   function startMqtt() {
@@ -367,6 +382,11 @@ function runDaemon() {
       publishTimer = null;
       if (!client) return; // broker connection not up yet
       state.ts = Math.floor(Date.now() / 1000);
+      // Always from our own live map, never from the seeded snapshot: a
+      // restarted daemon has no sessions no matter what the retained payload
+      // claimed, and the panel uses this to decide whether to show weather
+      // instead of a status it would be inventing.
+      state.sessions = demoSessions ?? liveSessions.size;
       const json = JSON.stringify(state);
       // Retained, so a rebooting ESP32 repaints correct state immediately.
       client.publish(cfg.topics.state, json, { retain: true, qos: 0 });
@@ -489,7 +509,11 @@ function runDaemon() {
           } else if (msg.kind === 'hook') {
             if (applyHook(msg.event, msg.data || {})) publish();
           } else if (msg.kind === 'demo') {
-            Object.assign(state, msg.data || {});
+            const d = msg.data || {};
+            // An explicit null releases the pin and hands the count back to
+            // the live map, so a plain `demo` undoes a `demo weather`.
+            if ('sessions' in d) demoSessions = d.sessions;
+            Object.assign(state, d);
             publish();
           }
         } catch (e) {
@@ -522,6 +546,28 @@ function runDaemon() {
     ) {
       state.status = 'idle';
       state.detail = 'idle';
+      publish();
+    }
+
+    // A force-kill leaves a session in the map with no SessionEnd to clear it,
+    // and a stuck count would keep the weather screen off the panel forever.
+    // The TTL is deliberately long: statusline only fires when there is
+    // traffic, so a session left open overnight is silent but genuinely still
+    // open - pruning it on the idle timescale would paint weather over a live
+    // terminal, which is the behaviour we specifically didn't want.
+    const cutoff = Date.now() - cfg.sessionTtlMs;
+    let pruned = 0;
+    for (const [sid, seenAt] of liveSessions) {
+      if (seenAt < cutoff) {
+        liveSessions.delete(sid);
+        pruned++;
+      }
+    }
+    if (pruned) {
+      log(`pruned ${pruned} session(s) last seen over ${cfg.sessionTtlMs} ms ago`);
+      if (liveSessions.size === 0 && state.status === 'idle') {
+        state.detail = 'no active session';
+      }
       publish();
     }
   }, 30000).unref?.();
@@ -587,28 +633,41 @@ async function runHook(event) {
   await sendToDaemon(cfg, { kind: 'hook', event, data: d }).catch(() => {});
 }
 
-async function runDemo() {
+async function runDemo(which) {
   const cfg = loadConfig();
-  const ok = await sendToDaemon(cfg, {
-    kind: 'demo',
-    data: {
-      status: 'needs_you',
-      detail: 'permission: Bash (npm test)',
-      model: 'Opus 5',
-      project: 'esp-paper',
-      session: {
-        used_pct: 42,
-        resets_at: Math.floor(Date.now() / 1000) + 8040,
-      },
-      week: {
-        used_pct: 67,
-        resets_at: Math.floor(Date.now() / 1000) + 273600,
-      },
-      context_pct: 31,
-      cost_usd: 1.23,
-    },
-  });
-  console.log(ok ? 'demo state sent' : 'could not reach daemon');
+  const now = Math.floor(Date.now() / 1000);
+
+  // `demo weather` drives the panel to the screen it shows when nothing is
+  // running. The forecast itself is fetched by the ESP32, not sent from here -
+  // all this does is pin the session count to zero so the panel stops having
+  // something to report. Plain `demo` releases the pin again.
+  const data =
+    which === 'weather'
+      ? {
+          status: 'idle',
+          detail: 'no active session',
+          sessions: 0,
+          session: { used_pct: 42, resets_at: now + 8040 },
+          week: { used_pct: 67, resets_at: now + 273600 },
+        }
+      : {
+          status: 'needs_you',
+          detail: 'permission: Bash (npm test)',
+          model: 'Opus 5',
+          project: 'esp-paper',
+          sessions: null,
+          session: { used_pct: 42, resets_at: now + 8040 },
+          week: { used_pct: 67, resets_at: now + 273600 },
+          context_pct: 31,
+          cost_usd: 1.23,
+        };
+
+  const ok = await sendToDaemon(cfg, { kind: 'demo', data });
+  console.log(
+    ok
+      ? `demo state sent${which === 'weather' ? ' (weather screen; run `demo` to release)' : ''}`
+      : 'could not reach daemon'
+  );
 }
 
 // Publishing an empty payload to a discovery topic is how HA is told to drop
@@ -670,7 +729,7 @@ const [, , mode, arg] = process.argv;
       await runHook(arg);
       break;
     case 'demo':
-      await runDemo();
+      await runDemo(arg);
       break;
     case 'status':
       await runStatus();
@@ -680,7 +739,7 @@ const [, , mode, arg] = process.argv;
       break;
     default:
       console.log(
-        'usage: bridge.js daemon|statusline|hook <Event>|demo|status|discovery [--remove]'
+        'usage: bridge.js daemon|statusline|hook <Event>|demo [weather]|status|discovery [--remove]'
       );
       process.exit(1);
   }

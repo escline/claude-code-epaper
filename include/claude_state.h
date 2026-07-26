@@ -32,6 +32,13 @@ struct ClaudeState {
   bool hasCost = false;
   float costUsd = 0.0f;
 
+  // How many Claude Code sessions the bridge can currently see. IDLE with zero
+  // sessions means "nothing is open" and hands the panel to the weather
+  // screen; IDLE with one means "open, waiting on you" and must not. Absent
+  // from older bridge builds, hence the flag.
+  bool hasSessions = false;
+  int sessions = 0;
+
   long ts = 0; // bridge clock at send time, unix epoch seconds
 };
 

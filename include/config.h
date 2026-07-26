@@ -54,6 +54,14 @@
 // Bridge silence after which we assume nothing is running.
 #define BRIDGE_STALE_MS 900000UL // 15 min
 
+// If the state topic has nothing retained on it - a fresh broker, or a bridge
+// that has never run - no state ever arrives and the connection banner would
+// stay up indefinitely, which also keeps the weather screen off (it replaces a
+// known state, never a banner). Assume offline after this instead. A retained
+// message lands within a second of subscribing, so this only needs to outlast
+// a slow connect.
+#define NO_STATE_ASSUME_OFFLINE_MS 60000UL
+
 // ===========================================================================
 // Layout - 400 x 300, origin top-left
 // ===========================================================================
@@ -74,6 +82,65 @@
 
 #define MARGIN 14
 #define BAR_H 18
+
+// ===========================================================================
+// Weather screen
+//
+// Shown instead of the status screen whenever there is nothing live to report:
+// the bridge is gone, or it is running with no Claude Code session open. The
+// panel is on a wall 24/7, so the hours it isn't reporting on Claude may as
+// well be useful.
+//
+// Coordinates live in secrets.h, not here - config.h is committed, and a home
+// latitude/longitude is not something to put in git.
+// ===========================================================================
+#define WEATHER_ENABLED 1
+
+// 0 = metric (C, km/h). Everything downstream keys off this: the units asked
+// of the API, and the suffix drawn next to the temperature.
+#define WEATHER_IMPERIAL 1
+
+// Which forecast model Open-Meteo should answer from.
+//
+// Not "best_match", which is the API default. Checked against the nearest NWS
+// station on a hot summer afternoon, best_match resolved to the GFS family and
+// ran 3 F warm on air temperature and *14 F dry* on dew point - 28 % relative
+// humidity against an observed 50 %. That collapses the heat index: the panel
+// read "feels 100" on a day that actually felt like 110. ECMWF matched the
+// observed dew point to within 0.2 F. GEM (`gem_seamless`) was a close second.
+//
+// This is one sample in one place, so treat it as a sensible default rather
+// than a universal truth; if the panel disagrees with a nearby station, this is
+// the first knob to turn. "best_match" is a valid value if you want the old
+// behaviour back.
+#define WEATHER_MODEL "ecmwf_ifs025"
+
+// Days in the forecast strip. These are *tomorrow onward* - today's high and
+// low already sit next to the current conditions. Five columns across 372 px
+// is 74 px each, which is the narrowest a "88/64" label reads cleanly at.
+#define WEATHER_FORECAST_DAYS 5
+
+#define WEATHER_REFRESH_MS 1200000UL // 20 min between good fetches
+#define WEATHER_RETRY_MS 120000UL    // after a failed one
+// Past this, "current" conditions are labelled stale rather than shown as
+// fact. Long enough to ride out a router reboot, short enough that a morning
+// temperature isn't still on the glass at dusk.
+#define WEATHER_STALE_MS 10800000UL // 3 h
+// The fetch blocks loop(). Keep this well inside the 30 s MQTT keepalive.
+#define WEATHER_HTTP_TIMEOUT_MS 8000
+
+// --- Weather layout, below the shared 26 px header ---
+#define Z_WX_NOW_Y 28
+#define Z_WX_NOW_H 128
+
+#define Z_WX_FC_Y 158
+#define Z_WX_FC_H 92
+
+#define Z_WX_FOOT_Y 252
+#define Z_WX_FOOT_H 48
+
+#define WX_ICON_LG 64 // current conditions
+#define WX_ICON_SM 32 // forecast columns
 
 // ===========================================================================
 // Clock - POSIX TZ string, US Central with DST.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "claude_state.h"
+#include "weather.h"
 
 // Bring up SPI and the panel, and paint the splash screen.
 void uiBegin();
@@ -9,6 +10,11 @@ void uiBegin();
 // against what is actually on the glass and repaints only what changed, no
 // faster than that zone's minimum interval.
 void uiSetState(const ClaudeState &s);
+
+// Hand the renderer the latest forecast. The weather screen replaces the
+// status screen on its own, whenever the state says nothing is running - the
+// caller only has to keep this fed.
+void uiSetWeather(const WeatherData &w);
 
 // Show a connection banner before any state has arrived.
 void uiSetBanner(const char *line1, const char *line2);

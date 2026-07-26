@@ -19,6 +19,14 @@ minute. There is no hardware-in-the-loop test, so **always build both envs
 before reporting a firmware change as done** — compiling is the only automated
 check. For bridge changes, `demo` plus a subscriber is the equivalent.
 
+**SCons decides staleness by content hash, not timestamp, so `touch` does not
+force a recompile.** A build that "succeeds with no warnings" right after
+touching files may have compiled nothing at all — this already hid a macro
+collision through several green builds. To actually re-examine a file's
+warnings, change its content or `pio run -t clean -e <env>` first. Incremental
+builds finish in ~13 s and clean ones in ~60 s; if a "rebuild" was suspiciously
+fast, it didn't happen.
+
 ## Things that bite
 
 ### Firmware
@@ -41,6 +49,40 @@ check. For bridge changes, `demo` plus a subscriber is the equivalent.
   be added to both a `paint*` function and its matching `sig*` function** — a
   field that isn't hashed will never trigger a repaint, and a field hashed at too
   fine a resolution (e.g. seconds) will repaint constantly and wear the panel.
+- **`zones[]` spans two screens and only one is live at a time.** The header is
+  on both; everything else belongs to the status screen or the weather screen,
+  and `zoneActive()` gates every loop over the table — `drawFull`, the dirty
+  check, and the partial-repaint scan. Miss one and the hidden screen's zones
+  either paint over the visible one or drag it through a refresh a minute as
+  the gauge countdown ticks behind it.
+- **The ESP32 fetches weather itself; the bridge is not involved.** That screen
+  shows when Claude Code isn't running, which usually means the PC hosting the
+  bridge is off — relaying it over MQTT would make it stale exactly when it
+  becomes visible. `WEATHER_LAT`/`WEATHER_LON` live in `secrets.h` and are a
+  hard `#error` if missing, on purpose: a default renders a believable forecast
+  for the wrong place.
+- **`WEATHER_MODEL` is pinned to ECMWF and `apparent_temperature` is unused.**
+  Both are deliberate and both were measured, not guessed. Open-Meteo's
+  `best_match` picked the GFS family here and was 14 °F dry on dew point against
+  the nearest NWS station, which collapses the heat index; and
+  `apparent_temperature` is not the US heat index — it folds in wind and solar
+  radiation and reads low in humid heat. `apparentF()` in `src/weather.cpp`
+  implements the NWS heat index / wind chill pair instead, validated against the
+  published charts. **When a weather number looks wrong, check humidity before
+  the formula** — the `[wx]` serial line prints it. Ground truth for US
+  locations is `api.weather.gov/points/<lat>,<lon>`, which reports `heatIndex`
+  directly.
+- **Adafruit GFX fonts stop at ASCII 126**, so there is no `°` glyph. `drawTemp`
+  in `src/ui.cpp` draws it as a ring, sized from the font's measured cap height
+  rather than a per-font constant.
+- **`textWidth()` and `textAdvance()` are not interchangeable.** `textWidth` wraps
+  `getTextBounds`, which measures the *ink* box: it drops both side bearings and
+  a trailing space contributes nothing at all (`"   H "` measures 11 px against a
+  33 px advance). That is correct for centring and right-alignment. For placing
+  anything *after* a string — `textRun`, `drawTemp` — use `textAdvance`, which
+  sums `xAdvance` the way the cursor does. Confusing the two drew the degree ring
+  on top of the last digit and ate the space after "feels"; two-digit values hid
+  it, because those happen to have zero bearing slack.
 
 ### Bridge
 
@@ -68,6 +110,13 @@ check. For bridge changes, `demo` plus a subscriber is the equivalent.
 - Hook payload field names have drifted from the docs before: `UserPromptSubmit`
   carries `prompt`, not the documented `user_prompt`. `applyHook` logs each
   event's payload keys to `bridge.log` so the next drift is a lookup.
+- **`sessions` is set inside `publish()` from `liveSessions`, never from the
+  seeded snapshot.** The panel uses it to tell "idle, waiting on you" from
+  "nothing open" and hand the screen to the weather; a restarted daemon has no
+  sessions regardless of what the broker still remembers. `finishSeeding()`
+  publishes once for exactly this reason — otherwise a daemon started at login
+  with Claude Code closed leaves yesterday's count retained and the panel sits
+  on a stale IDLE forever. `demo` may pin the value; only `demo` can unpin it.
 - HA discovery is retained and republished on every connect, which is what makes
   entities survive an HA restart. Adding an entity means adding it to
   `HA_ENTITIES`; removing one needs `discovery --remove` first, or its retained
@@ -77,12 +126,17 @@ check. For bridge changes, `demo` plus a subscriber is the equivalent.
 
 `include/secrets.h` and `bridge/config.json` hold WiFi and broker credentials and
 are gitignored. The `.example` counterparts are committed. Never paste real
-values into committed files, docs, or commit messages.
+values into committed files, docs, or commit messages. `WEATHER_LAT` /
+`WEATHER_LON` are in `secrets.h` for the same reason — not a credential, but a
+home address by another name, and it does not belong in git either.
 
 ## Layout
 
 - `include/config.h` — panel selection, pins, layout constants, refresh policy
 - `src/ui.cpp` — zone rendering + repaint throttling (the tricky part)
+- `src/weather.cpp` — Open-Meteo fetch and WMO code mapping
+- `src/weather_icons.cpp` — glyphs drawn from primitives, scaled by a parameter
+  rather than stored at each size
 - `src/main.cpp` — WiFi, MQTT, loop
 - `src/paneltest.cpp` — bring-up test, excluded from the monitor build via
   `build_src_filter`

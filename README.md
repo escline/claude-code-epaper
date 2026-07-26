@@ -22,6 +22,8 @@ Claude Code                    this PC                     LAN            panel
 statusLine  --stdin JSON-->  bridge.js statusline --,
                                                      +--> daemon --MQTT--> ESP32-S3
 hooks       --stdin JSON-->  bridge.js hook <Event> -'    (retained)        e-paper
+                                                                              ^
+Open-Meteo  ------------------------ HTTPS, every 20 min ----------------------'
 ```
 
 Two independent data sources feed one snapshot:
@@ -64,6 +66,63 @@ repaint interval:
 
 A zone repaints only when what it *would* draw differs from what is on the
 glass. An unchanged 42% pushed a hundred times costs zero refreshes.
+
+### The weather screen
+
+A wall panel that only says something while Claude Code is open is blank most of
+the week, so when there is nothing live to report it shows current conditions
+and a five-day forecast instead.
+
+"Nothing live to report" is two cases, and both count:
+
+- **OFFLINE** — the bridge's last will fired, nothing arrived for 15 minutes, or
+  the state topic has nothing retained on it at all.
+- **IDLE with `sessions: 0`** — the bridge is up and reports no Claude Code
+  session open.
+
+An IDLE session that is merely waiting on you is *not* one of them. That is a
+state worth showing, and burying it under a forecast would defeat the display.
+The distinction needs a session count, so the bridge publishes `sessions`
+alongside the rest of the snapshot; it is taken from the daemon's own live map
+on every publish, never from the retained snapshot it seeded from, because a
+restarted daemon has no sessions no matter what the broker still remembers.
+
+Switching screens forces a full refresh rather than a run of partials — every
+pixel below the header changes, and a full pass is also the cheapest way to
+clear the ghost of the layout being replaced.
+
+**The ESP32 fetches the forecast itself**, over HTTPS from
+[Open-Meteo](https://open-meteo.com) (no API key, no account), rather than
+having the bridge relay it over MQTT. This is the whole point: the screen exists
+for the hours Claude Code isn't running, which usually means the PC hosting the
+bridge is off. A weather panel that goes stale exactly when it becomes visible
+would be worse than none. Conditions older than three hours are labelled stale
+rather than presented as current.
+
+Icons are drawn from primitives rather than stored as bitmaps. The same eight
+symbols are needed at 64 px and at 32 px; as bitmaps that is sixteen blobs and a
+generator to keep them in step, and on a 1-bit panel the output is identical.
+
+#### Two things that are not the API's defaults
+
+**The model is pinned to ECMWF, not `best_match`.** Checked against the nearest
+NWS station on a hot afternoon, `best_match` resolved to the GFS family and ran
+3 °F warm on air temperature and **14 °F dry on dew point** — 28% relative
+humidity against an observed 50%. Humidity that wrong collapses the heat index,
+so the panel read "feels 100" on a day that genuinely felt like 110. ECMWF
+matched the observed dew point to within 0.2 °F. It's `WEATHER_MODEL` in
+`include/config.h`, and it's the first knob to turn if the panel disagrees with
+a station near you — one sample in one place is a sensible default, not a law.
+
+**"Feels like" is computed on-device, not taken from the API.** Open-Meteo's
+`apparent_temperature` is a different quantity: it folds in wind cooling and
+solar radiation, and it reads several degrees *below* the heat index in humid
+heat — precisely the condition the number exists to warn you about. `apparentF`
+in `src/weather.cpp` implements the NWS pair instead: the Rothfusz heat index
+above 80 °F, wind chill at or below 50 °F with wind over 3 mph, and plain air
+temperature in between, which is what US weather apps show. Validated against
+the published NWS charts: worst deviation 2.1 °F on heat index (Rothfusz's own
+fit error is ±1.3 °F), 0.5 °F on wind chill.
 
 ## Setup
 
@@ -121,6 +180,16 @@ cp bridge/config.example.json bridge/config.json   # gitignored
 
 Fill in WiFi and your broker in both. They are separate files because the ESP32
 and the bridge connect to the broker independently.
+
+`include/secrets.h` also holds `WEATHER_LAT` / `WEATHER_LON` for the weather
+screen, in decimal degrees (south and west negative). They live there rather
+than in the committed `config.h` purely so your home coordinates stay out of the
+repository. Two decimal places is finer than any forecast resolves.
+
+The build fails with a clear error if they are missing, deliberately: a default
+would render a plausible forecast for somewhere else entirely, which is a much
+worse failure than not compiling. Set `WEATHER_ENABLED 0` in `include/config.h`
+if you don't want the screen at all, and `WEATHER_IMPERIAL 0` for °C and km/h.
 
 ### 4. Flash the monitor firmware
 
@@ -238,12 +307,19 @@ pio run -t upload -t monitor        # flash + serial (monitor env is default)
 pio run -e paneltest -t upload      # panel bring-up test
 node bridge/bridge.js status        # config, broker, is the daemon up
 node bridge/bridge.js demo          # push a fake state
+node bridge/bridge.js demo weather  # force the weather screen
 node bridge/bridge.js daemon        # run in foreground to watch it
 node bridge/bridge.js discovery     # republish Home Assistant entities
 ```
 
 Careful with `demo`: it writes fake values to the retained topic, so the panel
 shows them until the next real update.
+
+`demo weather` pins the published session count to zero, which is what drives
+the panel to the weather screen without you having to close every terminal
+first. The forecast itself is not sent from here — the ESP32 fetches it — so
+this only changes whether the panel has something else to show. Plain `demo`
+releases the pin and hands the count back to the live session map.
 
 The daemon auto-spawns detached. To stop it:
 `Get-Process node | Where-Object { $_.CommandLine -like '*bridge.js*' } | Stop-Process`.
@@ -264,7 +340,35 @@ the *same subnet* as both devices — check with `ipconfig` that your PC and the
 broker IP agree in the first three octets.
 
 **Panel shows OFFLINE.** The bridge's last will fired, or nothing has been
-received for 15 minutes. Run `node bridge/bridge.js status`.
+received for 15 minutes. Run `node bridge/bridge.js status`. If the weather
+screen is enabled and a fetch has succeeded, you'll see the forecast instead,
+with the reason on the footer line.
+
+**Weather screen never appears.** It needs both a successful fetch and a state
+that says nothing is running. Check the serial log for `[wx]` lines — a failed
+GET or an unparseable response is logged there. If fetches are fine, the state
+is the culprit: `node bridge/bridge.js demo weather` forces it, and if that
+works but normal use doesn't, a session is being left open in the daemon's map.
+That is what `sessionTtlMs` exists to clean up, deliberately after 8 hours —
+`statusLine` only fires when there is traffic, so a session left open overnight
+is silent but genuinely still open, and pruning it on the idle timescale would
+paint weather over a live terminal.
+
+**Weather says "stale".** No successful fetch in three hours. Usually WiFi;
+check the `[wx]` serial lines. The last known values stay on screen rather than
+being blanked, labelled so you know not to trust them.
+
+**Temperature or "feels like" disagrees with your phone.** The `[wx]` serial
+line prints temperature, feels-like, humidity and the model in use. Check the
+humidity first — it drives the whole heat index, and a model that is dry by
+15 points will read 10 °F low on "feels like" while looking almost right on air
+temperature. Compare against a real observation rather than another app: for US
+locations, `api.weather.gov/points/<lat>,<lon>` leads to the nearest station and
+reports `heatIndex` directly. If the model is the problem, change
+`WEATHER_MODEL` in `include/config.h` — `gem_seamless` and `icon_seamless` are
+the next ones worth trying. Expect a couple of degrees of disagreement
+regardless: this is model output, not a thermometer, and phone apps differ from
+official observations too.
 
 **Gauges show `--`.** `rate_limits` hasn't arrived. It only appears for
 Claude.ai Pro/Max accounts, and only after the first API response in a session,
@@ -288,6 +392,8 @@ There is currently no supported local source, so the display omits it.
 
 - `include/config.h` — panel selection, pins, layout, refresh policy
 - `include/claude_state.h`, `src/claude_state.cpp` — the state snapshot + parser
+- `include/weather.h`, `src/weather.cpp` — Open-Meteo fetch, WMO code mapping
+- `include/weather_icons.h`, `src/weather_icons.cpp` — the glyphs, drawn not stored
 - `include/ui.h`, `src/ui.cpp` — zone-based rendering and repaint throttling
 - `src/main.cpp` — WiFi, MQTT, main loop
 - `src/paneltest.cpp` — standalone bring-up test (`-e paneltest`)

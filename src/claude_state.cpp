@@ -61,6 +61,10 @@ bool parseClaudeState(const char *json, size_t len, ClaudeState &out) {
     s.hasCost = true;
     s.costUsd = doc["cost_usd"].as<float>();
   }
+  if (!doc["sessions"].isNull()) {
+    s.hasSessions = true;
+    s.sessions = doc["sessions"].as<int>();
+  }
   s.ts = doc["ts"].as<long>();
 
   out = s;
