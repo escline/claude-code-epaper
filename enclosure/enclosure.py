@@ -59,6 +59,7 @@ P = {
     "usb_span_y": 24.0,
     "usb_span_z": 9.0,
     "esp_shift_x": 12.0,      # board offset toward the USB wall
+    "esp_fit": 0.4,           # clearance around the board in its cradle
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
@@ -214,15 +215,31 @@ def build_back():
     ex = D["esp_x"]
     ey = D["esp_y"]
     post = D["esp_post_h"]
-    for (px, py) in [(ex, ey), (ex + P["esp_l"], ey),
-                     (ex, ey + P["esp_w"]), (ex + P["esp_l"], ey + P["esp_w"])]:
-        lid = lid.fuse(cyl(3.0, post, px, py, z0 - post))
-    # Corner brackets: short walls just outside the board outline.
+    # Each corner gets a pillar plus an L bracket. Walls on only two sides
+    # would leave the board free to slide along its short axis.
     br = 1.8
-    for sx in (-1, 1):
-        bxp = ex - br if sx < 0 else ex + P["esp_l"]
-        lid = lid.fuse(box(br, P["esp_w"], P["esp_pcb_t"] + 1.5,
-                           bxp, ey, z0 - post - P["esp_pcb_t"] - 1.5))
+    lip_h = P["esp_pcb_t"] + 1.5
+    zb = z0 - post - lip_h
+    f = P["esp_fit"] / 2
+    for (px, py, sx, sy) in [
+        (ex - f, ey - f, 1, 1),
+        (ex + P["esp_l"] + f, ey - f, -1, 1),
+        (ex - f, ey + P["esp_w"] + f, 1, -1),
+        (ex + P["esp_l"] + f, ey + P["esp_w"] + f, -1, -1),
+    ]:
+        lid = lid.fuse(cyl(3.0, post, px, py, z0 - post))
+        # The brackets run 1mm past the base of the pillar. Meeting it exactly
+        # face to face unions two solids along coincident planes, which leaves
+        # the shape invalid; a real volumetric overlap does not.
+        bh = lip_h + 1.0
+        # Wall running along Y, blocking movement along the board's length.
+        lid = lid.fuse(box(br, 10.0, bh,
+                           px - br if sx > 0 else px,
+                           py if sy > 0 else py - 10.0, zb))
+        # Wall running along X, blocking movement across its width.
+        lid = lid.fuse(box(10.0, br, bh,
+                           px if sx > 0 else px - 10.0,
+                           py - br if sy > 0 else py, zb))
 
     # Cable slot so the display ribbon can pass the board.
     lid = lid.cut(box(P["cable_slot_w"], P["cable_slot_h"], P["lid_t"] + 2,
@@ -260,32 +277,51 @@ def build_back():
 # Fit-check coupon - print this first
 # ============================================================================
 def build_fit_check():
-    """One corner of the bezel/pocket, one ESP32 post pair, one screw boss.
+    """Bezel corner, screw boss, and one end of the ESP32 cradle, full scale.
 
-    Everything here is at full scale, so if this drops onto the hardware
-    correctly the full print will too.
+    Split into two zones with the bezel cuts confined to zone A. When those cuts
+    spanned the whole coupon they undercut the second cradle pillar in zone B
+    and left it floating in mid-air, printable only on supports.
     """
-    cw, ch = 55.0, 45.0
-    c = box(cw, ch, P["bezel_t"] + D["pocket_d"])
+    zone_a = 56.0
+    zone_b = 44.0
+    gap = 4.0
+    cw = zone_a + gap + zone_b
+    ch = 50.0
+    base = P["bezel_t"] + D["pocket_d"]
 
-    # Bezel corner: window edge and module pocket, same geometry as the shell.
-    c = c.cut(box(cw, ch, P["bezel_t"] + 2,
+    c = box(cw, ch, base)
+
+    # --- zone A: bezel corner, module pocket, screw boss -------------------
+    # Both cuts stop at zone_a so zone B stays solid underneath.
+    c = c.cut(box(zone_a - P["margin"], ch - P["margin"], D["pocket_d"] + 1,
+                  P["margin"], P["margin"], P["bezel_t"]))
+    c = c.cut(box(zone_a - P["margin"] - (P["disp_w"] - P["active_w"]) / 2
+                  - P["bezel_overlap"],
+                  ch - P["margin"] - (P["disp_h"] - P["active_h"]) / 2
+                  - P["bezel_overlap"],
+                  P["bezel_t"] + 2,
                   P["margin"] + (P["disp_w"] - P["active_w"]) / 2
                   + P["bezel_overlap"],
                   P["margin"] + (P["disp_h"] - P["active_h"]) / 2
                   + P["bezel_overlap"], -1))
-    c = c.cut(box(cw, ch, D["pocket_d"] + 1,
-                  P["margin"], P["margin"], P["bezel_t"]))
 
-    # A screw boss at true inset, to test the M3 pilot.
-    bz = P["bezel_t"] + D["pocket_d"]
-    c = c.fuse(cyl(P["boss_od"] / 2, 8.0, D["boss_inset"], D["boss_inset"], bz))
-    c = c.cut(cyl(P["boss_pilot"] / 2, 9.0, D["boss_inset"], D["boss_inset"], bz))
+    c = c.fuse(cyl(P["boss_od"] / 2, 8.0, D["boss_inset"], D["boss_inset"], base))
+    c = c.cut(cyl(P["boss_pilot"] / 2, 9.0, D["boss_inset"], D["boss_inset"], base))
 
-    # A pair of ESP32 posts at true spacing along the short edge, to check the
-    # board width and bracket fit.
-    c = c.fuse(cyl(3.0, 8.0, cw - 12.0, 8.0, bz))
-    c = c.fuse(cyl(3.0, 8.0, cw - 12.0, 8.0 + P["esp_w"], bz))
+    # --- zone B: one short end of the ESP32 cradle -------------------------
+    # Two pillars at true spacing with their outboard L brackets, so the board's
+    # short edge can be dropped in to check the width fit.
+    bx = zone_a + gap + 16.0
+    by0 = (ch - P["esp_w"]) / 2
+    br = 1.8
+    lip_h = P["esp_pcb_t"] + 1.5
+    f = P["esp_fit"] / 2
+    for (py, sy) in [(by0 - f, 1), (by0 + P["esp_w"] + f, -1)]:
+        c = c.fuse(cyl(3.0, 8.0, bx, py, base))
+        c = c.fuse(box(10.0, br, lip_h,
+                       bx - 5.0,
+                       py - br if sy > 0 else py, base + 8.0))
 
     return c.removeSplitter()
 
@@ -301,9 +337,14 @@ def export(shape, name):
     m.addFacets(shape.tessellate(0.05))
     m.write(stl)
     bb = shape.BoundBox
-    print("  %-14s %6.1f x %6.1f x %6.1f mm   vol %8.1f cm3   solid=%s"
+    # More than one solid means some feature is not connected to the body -
+    # a peg floating in mid-air, printable only on supports. Cheap to check
+    # and it catches an entire class of boolean mistake.
+    n = len(shape.Solids)
+    flag = "" if n == 1 else "   <-- %d DISCONNECTED PIECES" % n
+    print("  %-14s %6.1f x %6.1f x %6.1f mm   vol %8.1f cm3   valid=%s%s"
           % (name, bb.XLength, bb.YLength, bb.ZLength,
-             shape.Volume / 1000.0, shape.isValid()))
+             shape.Volume / 1000.0, shape.isValid(), flag))
     return stl
 
 

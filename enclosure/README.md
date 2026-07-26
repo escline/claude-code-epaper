@@ -33,7 +33,7 @@ and wedge.
 | --- | --- | --- |
 | `front-shell` | 121.4 × 96.9 × 29.2 mm | **Face down** (bezel on the plate) |
 | `back-shell` | 121.4 × 113.0 × 49.7 mm | **Angled wedge face down** |
-| `fit-check` | 55 × 45 × 13 mm | Flat, as oriented |
+| `fit-check` | 104 × 50 × 16.3 mm | Flat, as oriented |
 
 Neither shell needs supports in the orientation above. Face-down printing also
 puts the plate's finish on the bezel, which is the surface you look at.
@@ -44,17 +44,21 @@ itself shouldn't be baked either.
 
 ## Print the fit-check first
 
-`fit-check.stl` is a 55 × 45 mm coupon reproducing only the fits that can ruin a
-full print: one corner of the bezel window and module pocket, one M3 boss at its
-true inset, and a pair of ESP32 cradle posts at true spacing. It takes minutes
-rather than hours.
+`fit-check.stl` is a 104 × 50 mm coupon reproducing only the fits that can ruin
+a full print. It takes minutes rather than hours. Two zones: the bezel corner
+with its module pocket and an M3 boss, and one short end of the ESP32 cradle
+with both pillars and their L brackets at true spacing.
 
 Check that:
 
 1. The display module's corner drops into the pocket without force, and the
    bezel lip covers the edge of the glass without intruding on the image.
 2. An M3 self-tapping screw bites in the boss without splitting it.
-3. The ESP32 board's short edge fits between the two posts.
+3. The ESP32 board's short edge drops between the two brackets — snug, not
+   tight. This is the measurement most likely to be wrong.
+
+The build prints a warning if any part comes out as more than one solid, which
+is what a feature floating unsupported in mid-air looks like.
 
 ## Dimensions that still need measuring
 
