@@ -446,36 +446,54 @@ def build_back():
 # Separately, both parts lie flat.
 # ============================================================================
 def build_stand():
-    t = P["stand_min_t"]
-    ft = D["stand_front_t"]
-    wz = D["wedge_z"]
-    tz = D["total_z"]
+    """The wedge, built in case coordinates then rotated flat for printing.
 
-    # Drawn as a side profile and extruded, rather than cut from a block with
-    # a rotated plane. The rotation approach got its sign wrong and produced a
-    # wedge thick at the back, which tips the display face down.
+    Everything else in this file is drawn with the case upright. Assembled, the
+    case is tilted back, so in these coordinates the DESK is a tilted plane -
+    y = z*tan(tilt) - offset. The stand's underside has to be exactly that
+    plane, or it touches the desk along one line and the whole thing rocks.
+
+    An earlier version had a flat underside and a sloped top, which is the same
+    wedge lying the wrong way up: it met the desk only at the front edge.
+    """
+    t = P["stand_min_t"]
+    tz = D["total_z"]
+    wz = D["wedge_z"]
+    sl = D["stand_slope"]
+    off = tz * sl          # desk meets the case's bottom at its rear edge
+
+    #   case sits along B--C.  A--E is the desk plane.
     #
-    #   y=0    ______________________  <- case sits on this
-    #         |                      |
-    #         |  thick at the FRONT  |___
-    #          \                         | t
-    #           \________________________|
-    #        z=0        tz              wz
-    pts = [App.Vector(0, 0, 0), App.Vector(0, 0, wz),
-           App.Vector(0, -t, wz), App.Vector(0, -t, tz),
-           App.Vector(0, -ft, 0), App.Vector(0, 0, 0)]
+    #        B________________C_____D        (top)
+    #       /                        \
+    #      A__________________________E      (desk)
+    #     z=0                tz       wz
+    pts = [
+        App.Vector(0, -off - t, 0),          # A  front, on the desk
+        App.Vector(0, 0, 0),                 # B  front, under the case
+        App.Vector(0, 0, tz),                # C  rear of the case
+        App.Vector(0, wz * sl - off, wz),    # D  rear tip, top
+        App.Vector(0, wz * sl - off - t, wz),  # E  rear tip, on the desk
+        App.Vector(0, -off - t, 0),
+    ]
     s = Part.Face(Part.makePolygon(pts)).extrude(App.Vector(D["OW"], 0, 0))
 
     # Lip behind the case. Gravity pulls the case back down the slope into it,
     # which is what actually holds the assembly together.
     s = s.fuse(box(D["OW"], P["stand_lip_h"], P["stand_lip_h"], 0, 0, tz))
 
-    # Locating pegs into the front shell's bottom wall.
+    # Pegs rise along the case's Y axis, so they stay normal to the face the
+    # case sits on.
     for sx in D["peg_x"]:
         s = s.fuse(cyl(P["peg_d"] / 2, P["peg_h"], sx, 0, P["peg_z"],
                        dr=(0, 1, 0)))
 
-    return s.removeSplitter()
+    # Rotate the desk plane horizontal so the part exports print-ready, and
+    # drop it onto y=0.
+    s = s.removeSplitter()
+    s.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), P["tilt_deg"])
+    s.translate(App.Vector(0, -s.BoundBox.YMin, 0))
+    return s
 
 
 # ============================================================================

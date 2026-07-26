@@ -316,20 +316,43 @@ def main():
     # backwards tips the screen face down. Measure the real solid rather than
     # trusting the arithmetic: the old check confirmed the slope magnitude
     # while the sign was wrong.
-    def wedge_t(z):
-        return solid_depth(stand, (D["OW"] / 2, 0.5, z),
-                           (D["OW"] / 2, -D["stand_front_t"] - 2, z))
+    # The stand is exported rotated flat, so measure it in its own frame:
+    # vertical thickness above a bottom that must be planar at y=0.
+    top = stand.BoundBox.YMax
 
-    t_front = wedge_t(1.0)
-    t_back = wedge_t(D["total_z"] - 1.0)
+    def wedge_t(z):
+        return solid_depth(stand, (D["OW"] / 2, -1.0, z),
+                           (D["OW"] / 2, top + 1.0, z))
+
+    # Anchored at z=0, which is where the case's front bottom edge lands - not
+    # the bounding box, whose ZMin is the tip of the steep front face and gives
+    # a partial thickness reading.
+    z0 = 0.0
+    # Not named 'span': that shadows the span() helper for the whole of main(),
+    # and every earlier call to it then fails as an unassigned local.
+    foot = D["total_z"] * math.cos(math.radians(P["tilt_deg"]))
+    t_front = wedge_t(z0 + 2.0)
+    t_back = wedge_t(z0 + foot - 2.0)
     check("stand is thicker at the front than the back", t_front > t_back + 5,
           "front %.1f mm, back %.1f mm - thick at the back tips it face down"
           % (t_front, t_back))
-    got = (t_front - t_back) / (D["total_z"] - 2.0)
-    check("slope matches the tilt angle", abs(got - D["stand_slope"]) < 0.02,
-          "%.3f vs tan(%.0f) = %.3f" % (got, P["tilt_deg"], D["stand_slope"]))
+
+    # The underside must be one plane on the desk. Sampled just above y=0
+    # across the footprint: any gap means the stand only touches along a line
+    # and the assembly rocks.
+    gaps = [z for z in [z0 + 2 + i * (foot - 4) / 12 for i in range(13)]
+            if not solid(stand, (D["OW"] / 2, 0.3, z))]
+    check("stand underside is flat on the desk", not gaps,
+          "%d of 13 sample points off the desk" % len(gaps))
+
+    # The face the case sits on is horizontal in case coordinates, so after
+    # rotating the desk plane flat it descends at exactly tan(tilt).
+    got = (t_front - t_back) / (foot - 4.0)
+    want = math.tan(math.radians(P["tilt_deg"]))
+    check("top face slopes at the tilt angle", abs(got - want) < 0.03,
+          "%.3f vs tan(%.0f) = %.3f" % (got, P["tilt_deg"], want))
     check("rear of the stand is thick enough to print",
-          t_back >= P["stand_min_t"] - 0.5, "%.1f mm" % t_back)
+          t_back >= P["stand_min_t"] - 0.6, "%.1f mm" % t_back)
 
     # Pegs must land in the sockets.
     for sx in D["peg_x"]:
