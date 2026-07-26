@@ -76,9 +76,18 @@
 #define BAR_H 18
 
 // ===========================================================================
-// Clock - POSIX TZ string. Default is US Eastern with DST.
-// See https://github.com/nayarsystems/posix_tz_db for other zones.
+// Clock - POSIX TZ string, US Central with DST.
+//
+// The trailing rules are the DST changeover: M3.2.0 is the second Sunday in
+// March, M11.1.0 the first Sunday in November. Keep them - without the rules
+// the clock is an hour out for half the year.
+//
+// Other zones: https://github.com/nayarsystems/posix_tz_db
+//   Eastern  EST5EDT,M3.2.0,M11.1.0
+//   Mountain MST7MDT,M3.2.0,M11.1.0
+//   Pacific  PST8PDT,M3.2.0,M11.1.0
+//   UK       GMT0BST,M3.5.0/1,M10.5.0
 // ===========================================================================
 #define NTP_SERVER_1 "pool.ntp.org"
 #define NTP_SERVER_2 "time.nist.gov"
-#define TZ_POSIX "EST5EDT,M3.2.0,M11.1.0"
+#define TZ_POSIX "CST6CDT,M3.2.0,M11.1.0"
