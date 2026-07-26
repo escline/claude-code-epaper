@@ -92,7 +92,11 @@ An L-shaped rail with a bezel lip and a screw boss. It reproduces the
    any bare white film or PCB showing means it is understated. The top corner
    is used precisely because its 4.2 mm lip exposes that error — the bottom
    corner's 12.2 mm lip would swallow it.
-3. **Heat-set insert.** Melt an M3 insert into the boss with a soldering iron at
+3. **Locating pin.** The 2.6 mm pin must pass through the module's corner
+   mounting hole and let the board sit flat on the 8 mm shoulder behind it.
+   This is the check for `disp_hole_inset` — if the pin misses the hole, the
+   display cannot be fitted at all. Remove the brass standoffs first.
+4. **Heat-set insert.** Melt an M3 insert into the boss with a soldering iron at
    roughly 200 °C, pressing until flush. It should go in square without bulging
    the boss wall. Then check an M3 screw threads into it.
 
@@ -132,6 +136,20 @@ Each rail carries a 1.2 mm lip overhanging the board's front face, so the board
 cannot fall toward the display. The lip lands on the bare pad row and clears
 the WROOM can. Because it runs the rail's full length, **the board slides in
 lengthwise from the antenna end** rather than dropping in.
+
+### How the display is held
+
+The bosses sit on the module's **four corner mounting holes**, not the case
+corners. Each pushes a 2.6 mm pin up through the hole; the board drops over the
+pins and lands on the 8 mm shoulder behind. That locates the display precisely
+and stops it lifting out of its pocket.
+
+It has to be done this way. The display is fitted through the cavity, so
+anything in the front shell inside its footprint blocks it entirely. A boss
+beside the module needs a 10 mm bezel margin, which costs 8 mm of case in each
+direction; a boss on the module without a pin cannot be assembled at all.
+
+Remove the brass standoffs from the module — the pins use those holes.
 
 ### The WiFi antenna
 

@@ -8,6 +8,7 @@ floating, and that the slots the hardware has to drop into are actually the size
 the hardware is.
 """
 
+import math
 import os
 import sys
 
@@ -219,6 +220,11 @@ def main():
         for j in range(40):
             x = D["margin"] + (56.0 - D["margin"]) * (i + 0.5) / 40
             y = D["margin"] + (FIT_H - D["margin"]) * (j + 0.5) / 40
+            # The locating pin belongs in the pocket - it goes through the
+            # board's mounting hole.
+            if math.dist((x, y), (D["boss_inset"], D["boss_inset"])) \
+                    < D["pin_d"] / 2 + 0.6:
+                continue
             if solid(t_disp, (x, y, zf)):
                 obstructed.append((round(x, 1), round(y, 1)))
     check("nothing obstructs the seated module", not obstructed,
@@ -235,9 +241,19 @@ def main():
     # That gap only means anything if a boss is actually across it. With a
     # larger margin the bosses sat wholly outside the module's footprint and
     # touched nothing, so nothing held the display in its pocket at all.
+    # The boss shoulder is what the module lands on, so it has to be inside the
+    # board's footprint - which is only possible because a pin passes through
+    # the mounting hole. Without the pin this overlap would stop the display
+    # being fitted at all.
     reach = (D["boss_inset"] + D["boss_od"] / 2) - D["margin"]
-    check("bosses overlap the module corners to retain it", reach >= 1.5,
+    check("boss shoulder is under the module", reach >= 1.5,
           "%.2f mm of overlap" % reach)
+    check("pin fits the module's mounting hole",
+          0.2 <= P["disp_hole_d"] - D["pin_d"] <= 0.8,
+          "pin %.2f in a %.2f hole" % (D["pin_d"], P["disp_hole_d"]))
+    check("pin reaches through the board but not past the boss",
+          D["pocket_d"] >= D["mod_t"],
+          "pin %.2f mm through a %.2f mm board" % (D["pocket_d"], D["mod_t"]))
     check("bosses stay out of the window",
           D["boss_inset"] + D["boss_od"] / 2 < D["win_x"],
           "boss reaches %.2f, window starts %.2f"

@@ -61,6 +61,14 @@ P = {
     "active_dx": 0.0,
     "active_dy": 4.0,
     "bezel_overlap": 0.5,     # bezel covers this much of the active area/side
+    # The module's own corner mounting holes. The bosses sit on these and push
+    # a pin through, which is the only way a boss and the board can share a
+    # corner - the display is fitted through the cavity, so anything in the
+    # front shell inside its footprint stops it going in at all.
+    # MEASURE: hole centre to each PCB edge, and the hole diameter.
+    "disp_hole_inset": 4.0,
+    "disp_hole_d": 3.0,
+    "pin_clear": 0.4,         # pin is this much under the hole
 
     # True: the window is centred in the case and the module is mounted
     # off-centre to suit. The case looks symmetric, which is what anyone
@@ -192,7 +200,11 @@ def derived(p):
     # Where the image actually lands, for checking the window sits on it.
     d["active_cx"] = d["pocket_x"] + (p["disp_w"] + p["fit"]) / 2 + p["active_dx"]
     d["active_cy"] = d["pocket_y"] + (p["disp_h"] + p["fit"]) / 2 + p["active_dy"]
-    d["boss_inset"] = d["boss_od"] / 2 + 1.5
+    d["pin_d"] = p["disp_hole_d"] - p["pin_clear"]
+    # Hole centre measured in from the pocket edge, so the module's clearance
+    # is taken into account.
+    d["hole_from_pocket"] = p["fit"] / 2 + p["disp_hole_inset"]
+    d["boss_inset"] = d["margin"] + d["hole_from_pocket"]
     d["total_z"] = d["front_depth"] + p["lid_t"]
     d["wedge_z"] = d["total_z"] + p["rear_overhang"]
     d["drop"] = math.tan(math.radians(p["tilt_deg"])) * d["wedge_z"]
@@ -235,14 +247,19 @@ def cyl(r, h, x=0.0, y=0.0, z=0.0, dr=(0, 0, 1)):
 
 
 def boss_positions():
-    """Screw boss centres, inset from each corner."""
-    i = D["boss_inset"]
-    return [
-        (i, i),
-        (D["OW"] - i, i),
-        (i, D["OH"] - i),
-        (D["OW"] - i, D["OH"] - i),
-    ]
+    """Boss centres, sitting on the module's four mounting holes.
+
+    Not the case corners. At this margin a corner boss overlaps the module, and
+    since the display is fitted through the cavity that stops it going in at
+    all. On the holes, a stepped pin passes through the board instead - which
+    locates it as well as retaining it.
+    """
+    h = D["hole_from_pocket"]
+    x0 = D["pocket_x"] + h
+    x1 = D["pocket_x"] + P["disp_w"] + P["fit"] - h
+    y0 = D["pocket_y"] + h
+    y1 = D["pocket_y"] + P["disp_h"] + P["fit"] - h
+    return [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
 
 
 # ============================================================================
@@ -272,6 +289,10 @@ def build_front():
     # rear face and stops short of the module.
     for (bx, by) in boss_positions():
         s = s.fuse(cyl(D["boss_od"] / 2, D["cavity_d"], bx, by, D["cavity_z"]))
+        # Pin up through the module's mounting hole. It runs 1mm into the boss
+        # so the two share volume rather than meeting on a plane.
+        s = s.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] + 1.0, bx, by,
+                       D["pocket_z"]))
         bore = P["insert_len"] + 1.0
         s = s.cut(cyl(P["insert_hole"] / 2, bore, bx, by,
                       D["front_depth"] - bore))
@@ -451,11 +472,12 @@ def build_fit_display():
                  - (D["win_y"] + D["win_h"]))
     c = c.cut(box(w - lip_x, FIT_H - lip_y, P["bezel_t"] + 2, lip_x, lip_y, -1))
 
-    # Boss bored for a heat-set insert, at the true corner inset.
-    c = c.fuse(cyl(D["boss_od"] / 2, P["insert_len"] + 3.0,
-                   D["boss_inset"], D["boss_inset"], base))
-    c = c.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0,
-                  D["boss_inset"], D["boss_inset"],
+    # Boss and locating pin at the true position, on the module's mounting
+    # hole. The pin is what lets the boss share the corner with the board.
+    bp = D["boss_inset"]
+    c = c.fuse(cyl(D["pin_d"] / 2, D["pocket_d"] + 1.0, bp, bp, P["bezel_t"]))
+    c = c.fuse(cyl(D["boss_od"] / 2, P["insert_len"] + 3.0, bp, bp, base))
+    c = c.cut(cyl(P["insert_hole"] / 2, P["insert_len"] + 1.0, bp, bp,
                   base + 2.0))
 
     return c.removeSplitter()
