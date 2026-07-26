@@ -1,4 +1,4 @@
-# esp-paper
+# claude-code-epaper
 
 A **Claude Code status and usage display**: a Waveshare 4.2" e-Paper Module
 (rev2.1, 400x300 B/W) driven by an ESP32-S3-N16R8, showing live 5-hour and
@@ -156,8 +156,9 @@ touching your Claude Code config.
 ### 6. Wire up Claude Code
 
 Merge the two keys from `docs/claude-settings-snippet.json` into
-`~/.claude/settings.json`. **Merge, don't replace** — that file has your other
-settings in it. Adjust the absolute path if you move the repo.
+`~/.claude/settings.json`, replacing `CLAUDE_EPAPER_PATH` with the absolute path
+to your clone. **Merge, don't replace** — that file has your other settings in
+it, and invalid JSON silently disables all of them.
 
 The snippet deliberately leaves out `PreToolUse`. Adding it shows which tool is
 running, but spawns node before *every* tool call, adding roughly 100 ms each.
@@ -312,3 +313,22 @@ There is currently no supported local source, so the display omits it.
 - [Claude Code statusline reference](https://code.claude.com/docs/en/statusline)
 - [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
 - [Waveshare 4.2inch e-Paper Module wiki](https://www.waveshare.com/wiki/4.2inch_e-Paper_Module_Manual)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Disclaimer
+
+An independent hobby project, not affiliated with or endorsed by Anthropic or
+Waveshare. "Claude" and "Claude Code" are trademarks of Anthropic.
+
+It reads Claude Code's documented `statusLine` and hook interfaces. Those are
+public and stable enough to build on, but they are not a versioned API — field
+names have shifted before (`UserPromptSubmit` delivers `prompt`, not the
+documented `user_prompt`), so expect occasional breakage after upgrades. The
+bridge logs each hook's payload keys to `bridge/bridge.log` to make that quick
+to diagnose.
+
+`rate_limits` is only populated for Claude.ai Pro/Max accounts. On API/Console
+billing the gauges will stay at `--`; everything else still works.

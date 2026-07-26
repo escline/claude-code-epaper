@@ -1,4 +1,4 @@
-# esp-paper
+# claude-code-epaper
 
 Claude Code status + usage display: Waveshare 4.2" e-Paper (rev2.1, 400x300 B/W)
 on an ESP32-S3-N16R8, fed over MQTT by a Node bridge that merges Claude Code
