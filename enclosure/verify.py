@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import FreeCAD as App  # noqa: E402
 from enclosure import (  # noqa: E402
     build_front, build_back, build_stand, build_fit_display, build_fit_cradle,
-    pin_positions, FIT_H, D, P)
+    pin_positions, FIT_H, D, P)  # noqa: F401
 
 FAILS = []
 
@@ -362,6 +362,28 @@ def main():
         check("socket is inside solid material at x=%.0f" % sx,
               solid(front, (sx + P["peg_d"], P["peg_h"] / 2, P["peg_z"])),
               "material beside the socket")
+
+    print("\nAssembled on a desk")
+    # Rotate the assembly into its resting orientation and see what touches the
+    # desk. A wedge the wrong way round leaves the case digging through it -
+    # which is what three revisions of slope and thickness checks all missed,
+    # because they described the stand without ever placing the case on it.
+    shells = front.fuse(back)
+    st = build_stand(for_print=False)
+    for sh in (shells, st):
+        sh.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), P["tilt_deg"])
+    desk = st.BoundBox.YMin
+    lift = shells.BoundBox.YMin - desk
+    check("case sits above the desk, not through it", lift > 0.5,
+          "lowest point of the shells is %.1f mm above the stand's underside"
+          % lift)
+    check("case is not perched too high", lift < P["stand_min_t"] + 2.0,
+          "%.1f mm" % lift)
+
+    # And the screen has to end up facing up, not down.
+    ny = math.sin(math.radians(P["tilt_deg"]))
+    check("screen faces up and forward", ny > 0,
+          "normal Y %+.2f" % ny)
 
     print("\nAssembly interference")
     # The two shells must not want the same space. A lid boss added for the

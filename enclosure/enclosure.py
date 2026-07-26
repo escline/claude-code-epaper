@@ -445,8 +445,11 @@ def build_back():
 # bed, and standing it on the wedge face turns the whole 123 x 107 lid vertical.
 # Separately, both parts lie flat.
 # ============================================================================
-def build_stand():
+def build_stand(for_print=True):
     """The wedge, built in case coordinates then rotated flat for printing.
+
+    for_print=False returns it still in case coordinates, for assembling
+    against the shells.
 
     Everything else in this file is drawn with the case upright. Assembled, the
     case is tilted back, so in these coordinates the DESK is a tilted plane -
@@ -488,9 +491,11 @@ def build_stand():
         s = s.fuse(cyl(P["peg_d"] / 2, P["peg_h"], sx, 0, P["peg_z"],
                        dr=(0, 1, 0)))
 
+    s = s.removeSplitter()
+    if not for_print:
+        return s
     # Rotate the desk plane horizontal so the part exports print-ready, and
     # drop it onto y=0.
-    s = s.removeSplitter()
     s.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), P["tilt_deg"])
     s.translate(App.Vector(0, -s.BoundBox.YMin, 0))
     return s
