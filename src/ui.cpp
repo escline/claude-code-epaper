@@ -110,7 +110,10 @@ static void formatRemaining(long secs, char *buf, size_t cap) {
   if (d > 0)
     snprintf(buf, cap, "resets in %ldd %ldh", d, h);
   else if (h > 0)
-    snprintf(buf, cap, "resets in %ldh %ldm", h, m);
+    // 5-minute steps above an hour. A per-minute tick would repaint the gauge
+    // zone 60 times an hour, and every partial update leaves a little more
+    // ghosting behind; at this range the extra precision is not worth it.
+    snprintf(buf, cap, "resets in %ldh %02ldm", h, (m / 5) * 5);
   else
     snprintf(buf, cap, "resets in %ldm", m);
 }
@@ -258,16 +261,26 @@ static uint32_t sigStatus() {
   return h;
 }
 
-// Reset countdowns are hashed at minute resolution so the zone doesn't go
-// dirty every second, but still ticks down visibly.
+// Hash the rendered countdown strings rather than the raw epochs, so the
+// signature changes exactly when the pixels would. That keeps this in step with
+// formatRemaining automatically - coarsening the text there immediately cuts
+// the number of partial refreshes, with no second place to remember to update.
 static uint32_t sigGauge() {
   time_t now = time(nullptr);
   uint32_t h = hashInit();
+  char buf[24];
+
   h = hashInt(h, current.session.valid ? current.session.usedPct : -1);
   h = hashInt(h, current.week.valid ? current.week.usedPct : -1);
-  h = hashInt(h, current.session.resetsAt ? (current.session.resetsAt - now) / 60
-                                          : -1);
-  h = hashInt(h, current.week.resetsAt ? (current.week.resetsAt - now) / 60 : -1);
+
+  if (current.session.valid && current.session.resetsAt > 0) {
+    formatRemaining((long)(current.session.resetsAt - now), buf, sizeof(buf));
+    h = hashStr(h, buf);
+  }
+  if (current.week.valid && current.week.resetsAt > 0) {
+    formatRemaining((long)(current.week.resetsAt - now), buf, sizeof(buf));
+    h = hashStr(h, buf);
+  }
   return h;
 }
 

@@ -46,7 +46,10 @@
 #define GAUGE_MIN_INTERVAL_MS 60000UL   // usage bars: slow
 #define FOOTER_MIN_INTERVAL_MS 60000UL  // footer + header clock
 #define FULL_REFRESH_INTERVAL_MS 1800000UL // 30 min de-ghost
-#define PARTIALS_BEFORE_FULL 20
+// Ghosting became visible on changing digits at 20. Lower this if you still see
+// old values behind new ones; raise it if the full-refresh flash bothers you
+// more than the ghosting does.
+#define PARTIALS_BEFORE_FULL 10
 
 // Bridge silence after which we assume nothing is running.
 #define BRIDGE_STALE_MS 900000UL // 15 min

@@ -5,27 +5,14 @@ A **Claude Code status and usage display**: a Waveshare 4.2" e-Paper Module
 weekly rate-limit usage, and flipping to a large **NEEDS YOU** banner the moment
 Claude blocks on a permission prompt.
 
-```
-+----------------------------------------------------+
-| CLAUDE CODE                                  14:32  |   inverted header
-+----------------------------------------------------+
-|                                                    |
-|              #  NEEDS YOU  #                       |   status banner
-|         Claude needs permission to use Bash        |
-|                                                    |
-+----------------------------------------------------+
-|  SESSION (5h)                                 42%  |
-|  [##############                            ]      |
-|  resets in 2h 14m                                  |
-|                                                    |
-|  WEEK (7d)                                    68%  |
-|  [######################                    ]      |
-|  resets in 3d 4h                                   |
-+----------------------------------------------------+
-|  Opus 5 | esp-paper                                |
-|  ctx 31%   $1.23                                   |
-+----------------------------------------------------+
-```
+![The e-paper panel showing an idle Claude Code session: a CLAUDE CODE header
+with a clock, a large IDLE banner reading "waiting for you", progress bars for
+5-hour and weekly rate-limit usage with reset countdowns, and a footer showing
+the model, project, context usage and session cost](docs/panel-idle.jpg)
+
+When Claude blocks on a permission prompt, the banner inverts to a
+full-width **NEEDS YOU** with the prompt text beneath it — readable across a
+room and hard to miss in peripheral vision.
 
 ## How it works
 
