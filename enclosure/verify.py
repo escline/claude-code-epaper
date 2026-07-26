@@ -167,6 +167,42 @@ def main():
     check("nothing intrudes under the board's long edges", not intrude,
           "%d sample points blocked" % len(intrude))
 
+    # Antenna keep-out. The tab overhangs the end away from the USB ports and
+    # sits proud of the main board; both shells must leave it alone, with air
+    # around it rather than plastic against a radiating element.
+    # Scoped to the tab's own envelope plus a margin. A larger box reached into
+    # the module pocket's sidewall and the volume the display itself occupies,
+    # and failed on legitimate structure.
+    ko = P["esp_ant_keepout"]
+    ax1 = D["esp_x"]
+    ax0 = D["esp_x"] - P["esp_ant_len"] - ko
+    ay0 = D["esp_y"] + (P["esp_w"] - P["esp_ant_w"]) / 2 - ko
+    ay1 = ay0 + P["esp_ant_w"] + 2 * ko
+    az0 = D["esp_board_z"] - P["esp_pcb_t"] - ko
+    az1 = D["esp_board_z"]
+    hits = []
+    for sh, nm in ((front, "front"), (back, "back")):
+        for i in range(16):
+            for j in range(10):
+                for k in range(8):
+                    x = ax0 + (ax1 - ax0) * (i + 0.5) / 16
+                    y = ay0 + (ay1 - ay0) * (j + 0.5) / 10
+                    z = az0 + (az1 - az0) * (k + 0.5) / 8
+                    if solid(sh, (x, y, z)):
+                        hits.append(nm)
+    check("antenna keep-out is clear in both shells", not hits,
+          "%d blocked (%s)" % (len(hits), ", ".join(sorted(set(hits))) or "-"))
+
+    # Rail lips must overhang the board's front face, or nothing stops the
+    # board falling toward the display.
+    zlip = D["esp_board_z"] - P["esp_pcb_t"] - P["esp_lip_in"] / 2
+    xl = D["esp_x"] + P["esp_l"] / 2
+    lipgap = span(back, (xl, D["esp_y"] - 8, zlip),
+                  (xl, D["esp_y"] + P["esp_w"] + 8, zlip))
+    check("rail lips overhang the board face",
+          lipgap < P["esp_w"] - 1.0,
+          "%.2f mm open at lip height vs %.2f board" % (lipgap, P["esp_w"]))
+
     print("\nTest print clearance")
     # The module is 103 x 78.5, so once its corner is in the rail it covers the
     # whole plate. Nothing may stand above the pocket floor inside that

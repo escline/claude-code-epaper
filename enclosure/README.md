@@ -112,6 +112,28 @@ under the middle of each short end, where the PCB is bare between the two pin
 columns. Nothing enters the band along the long edges where the plastic and
 housings live, and `verify.py` asserts that.
 
+Each rail carries a 1.2 mm lip overhanging the board's front face, so the board
+cannot fall toward the display. The lip lands on the bare pad row and clears
+the WROOM can. Because it runs the rail's full length, **the board slides in
+lengthwise from the antenna end** rather than dropping in.
+
+### The WiFi antenna
+
+The WROOM's PCB antenna overhangs the end opposite the USB ports and sits
+slightly proud of the main board. Two consequences:
+
+- **No end stop at that end.** A wall there would foul the tab. The board is
+  held along its length between the USB wall and the pedestals.
+- **Keep-out.** `verify.py` asserts both shells stay out of the tab's envelope
+  plus a 2 mm margin. Set `esp_ant_len` and `esp_ant_w` to your tab; the
+  defaults (12 × 20 mm) are read off photographs.
+
+The tab still ends up behind the display module's ground plane, which is
+unavoidable at this board length — the display is 103 mm wide and the ESP32 is
+only 63.5 mm long, so there is no position that clears it. If WiFi turns out
+weak, the fix is to rotate the board or move the case, not to change the
+enclosure.
+
 ### Depth budget behind the board
 
 | | |

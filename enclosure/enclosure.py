@@ -97,6 +97,17 @@ P = {
     # columns the short ends are bare.
     "esp_ledge_x": 3.0,       # how far the shelf reaches under the board's end
     "esp_ledge_w": 14.0,      # span across the middle, clear of the corner pins
+    # The WROOM's PCB antenna overhangs the end opposite the USB ports, sitting
+    # slightly proud of the main board. Nothing may touch it, and it wants air
+    # around it - plastic against a radiating element detunes it.
+    # MEASURE: how far the tab sticks out past the PCB edge, and how wide.
+    "esp_ant_len": 12.0,
+    "esp_ant_w": 20.0,
+    "esp_ant_keepout": 2.0,   # margin around the tab's own envelope
+    # Lip on each rail, overhanging the board's front face. Without it nothing
+    # holds the board back and it can fall against the display. The board
+    # slides in lengthwise, from the antenna end.
+    "esp_lip_in": 1.2,
 
     # --- construction ------------------------------------------------------
     "fit": 0.4,               # clearance around the display module
@@ -309,10 +320,18 @@ def build_back():
 
     # Side rails retain the board sideways only - no ledge, so nothing intrudes
     # under the header plastic or the housings plugged into it.
+    li = P["esp_lip_in"]
     for sy in (-1, 1):
         inner = (ey - f) if sy < 0 else (ey + P["esp_w"] + f)
         ry = inner - rw if sy < 0 else inner
         lid = lid.fuse(box(P["esp_l"], rw, post + lip_h, ex, ry, zf))
+        # Lip overhanging the board's front face, so it cannot fall toward the
+        # display. It lands on the bare pad row along the edge and so clears
+        # the WROOM can. It runs the full rail length, which means the board
+        # slides in lengthwise rather than dropping in.
+        ly2 = inner if sy < 0 else inner - li
+        lid = lid.fuse(box(P["esp_l"], li, li, ex, ly2,
+                           z0 - post - P["esp_pcb_t"] - li))
 
     # Pedestals under the middle of each short end, where the PCB is bare.
     # Full height to the lid - as thin shelves they had nothing beneath them
@@ -322,10 +341,9 @@ def build_back():
     for lx in (ex, ex + P["esp_l"] - P["esp_ledge_x"]):
         lid = lid.fuse(box(P["esp_ledge_x"], lw, post, lx, ly, z0 - post))
 
-    # End stop so the board cannot slide along its length. Only at the far end
-    # - the USB ports have to reach the opening at the other.
-    lid = lid.fuse(box(2.0, P["esp_w"] + P["esp_fit"] + 2 * rw, post + lip_h,
-                       ex - 2.0, ey - f - rw, zf))
+    # No end stop at the far end: that is where the antenna tab overhangs, and
+    # a wall there would foul it. The board is held along X between the USB
+    # wall and the pedestals' friction, and in Z by the front shell's ribs.
 
     # Cable slot so the display ribbon can pass the board.
     lid = lid.cut(box(P["cable_slot_w"], P["cable_slot_h"], P["lid_t"] + 2,
