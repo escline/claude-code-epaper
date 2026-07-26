@@ -178,11 +178,41 @@ function runDaemon() {
     },
   });
 
+  // A restarting daemon must not clobber the retained snapshot with its empty
+  // defaults - that would blank the panel's gauges until the next statusline
+  // arrives, which after a reboot could be a long time. So on first connect we
+  // adopt the retained state as our baseline rather than publishing over it.
+  let seeded = false;
+  let seedTimer = null;
+
+  function finishSeeding() {
+    if (seeded) return;
+    seeded = true;
+    clearTimeout(seedTimer);
+    client.unsubscribe(cfg.topics.state);
+  }
+
   client.on('connect', () => {
     log(`connected to ${cfg.mqtt.url}`);
     client.publish(cfg.topics.bridge, 'online', { retain: true });
-    publish();
+    if (!seeded) {
+      client.subscribe(cfg.topics.state);
+      // No retained message will arrive if the topic has never been published.
+      seedTimer = setTimeout(finishSeeding, 1500);
+    }
   });
+
+  client.on('message', (topic, payload) => {
+    if (seeded || topic !== cfg.topics.state) return;
+    try {
+      Object.assign(state, JSON.parse(payload.toString()));
+      log('seeded in-memory state from retained snapshot');
+    } catch (e) {
+      log(`retained snapshot unparseable, ignoring: ${e.message}`);
+    }
+    finishSeeding();
+  });
+
   client.on('error', (e) => log(`mqtt error: ${e.message}`));
   client.on('close', () => log('mqtt connection closed'));
 
