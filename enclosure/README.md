@@ -39,8 +39,8 @@ prints an ASCII side section showing the bezel, pocket, cavity, cradle and wedge
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 123.4 × 106.9 × 30.3 mm | **Face down** (bezel on the plate) |
-| `back-shell` | 123.4 × 123.4 × 50.8 mm | **Angled wedge face down** |
+| `front-shell` | 123.4 × 106.9 × 30.5 mm | **Face down** (bezel on the plate) |
+| `back-shell` | 123.4 × 123.5 × 51.0 mm | **Angled wedge face down** |
 | `test-display` | 56 × 50 × 13.9 mm | Flat, as oriented |
 | `test-cradle` | 44 × 50 × 14.1 mm | Flat, as oriented |
 
@@ -118,11 +118,12 @@ RX-M3x5.7: 4.6 mm OD, 5.7 mm long, 4.0 mm hole. The short RX-M3Sx4.0 also fits
 the same hole, but the boss is 25 mm deep so there is no reason to give up the
 thread engagement.
 
-Still estimated:
+Established from the test prints:
 
-| Parameter | Current | What to measure |
+| Parameter | Value | How |
 | --- | --- | --- |
-| `disp_panel_t` | 1.2 | Glass/film thickness on the module's front — total module thickness minus the 1.6 mm PCB. The pocket-fit test settles this |
+| `disp_panel_t` | 1.6 | Module sat flush in a 3.2 mm pocket, so it is 3.2 thick overall — 1.6 of film over the 1.6 PCB |
+| `pocket_clear` | 0.2 | Play behind the module. It is trapped between the bezel lip and the boss faces, and this is the only thing stopping it shifting |
 
 ### Active area vs visible panel
 

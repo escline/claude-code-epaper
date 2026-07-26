@@ -160,6 +160,14 @@ def main():
     check("nothing obstructs the seated module", not obstructed,
           "%d sample points blocked" % len(obstructed))
 
+    # The module is trapped between the bezel lip and the boss faces. Too much
+    # play here and the panel shifts in its pocket; too little and the front
+    # shell will not close on it.
+    play = D["pocket_d"] - D["mod_t"]
+    check("module is held without free play", 0.05 <= play <= 0.35,
+          "%.2f mm behind the module (pocket %.2f, module %.2f)"
+          % (play, D["pocket_d"], D["mod_t"]))
+
     print("\nShell closure")
     # Measure the lid's register lip against the front shell's cavity at the
     # depth where they actually engage.

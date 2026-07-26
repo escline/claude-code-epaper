@@ -42,7 +42,14 @@ P = {
     "disp_w": 103.0,
     "disp_h": 78.5,
     "disp_pcb_t": 1.6,
-    "disp_panel_t": 1.2,      # MEASURE: glass/film bonded to the front
+    # Film bonded to the front. Established from the test print: the module sat
+    # flush with a 3.2mm pocket, so it is 3.2 thick overall, not the 2.8 first
+    # assumed.
+    "disp_panel_t": 1.6,
+    # Play behind the module, between its back face and the screw bosses. The
+    # module is trapped between those and the bezel lip, so this wants to be
+    # small - it is the only thing stopping the panel shifting in its pocket.
+    "pocket_clear": 0.2,
     "active_w": 84.8,         # published active area
     "active_h": 63.6,
     # Offset of the image from the module's centre, measured front-face borders
@@ -137,9 +144,9 @@ def derived(p):
     d["OH"] = p["disp_h"] + p["fit"] + 2 * d["margin"] + 2 * abs(p["active_dy"])
     d["cavity_d"] = max(p["cavity_d_min"],
                         p["esp_stack_h"] + p["esp_pcb_t"] + p["esp_top_clear"])
-    d["front_depth"] = p["bezel_t"] + d["mod_t"] + 0.4 + d["cavity_d"]
     d["pocket_z"] = p["bezel_t"]
-    d["pocket_d"] = d["mod_t"] + 0.4
+    d["pocket_d"] = d["mod_t"] + p["pocket_clear"]
+    d["front_depth"] = p["bezel_t"] + d["pocket_d"] + d["cavity_d"]
     d["cavity_z"] = d["pocket_z"] + d["pocket_d"]
     d["win_w"] = p["active_w"] - 2 * p["bezel_overlap"]
     d["win_h"] = p["active_h"] - 2 * p["bezel_overlap"]
