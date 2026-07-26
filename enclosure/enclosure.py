@@ -49,15 +49,22 @@ P = {
     "active_dy": 0.0,
     "bezel_overlap": 0.5,     # bezel covers this much of the active area/side
 
-    # --- ESP32-S3 devkit (clone - all MEASURE) ----------------------------
-    "esp_w": 25.5,            # short edge
+    # --- ESP32-S3 devkit (clone; measured with calipers) ------------------
+    "esp_w": 28.2,            # short edge
     "esp_l": 63.5,            # long edge, USB ports on one short end
     "esp_pcb_t": 1.6,
-    "esp_stack_h": 16.0,      # PCB underside to bottom of Dupont housings
+    # Connector bottom is at 16.5; the extra 3 lets the wires turn out of the
+    # housing instead of being crushed against the lid.
+    "esp_stack_h": 19.5,
+    # Clearance in front of the board for the WROOM module and buttons, which
+    # face the display.
+    "esp_top_clear": 4.0,
     # The two USB-C ports sit side by side across the board's short edge, so
     # the opening is wide in Y (case height) and shallow in Z (case depth).
-    "usb_span_y": 24.0,
-    "usb_span_z": 9.0,
+    # Ports measure 20.7 outer-to-outer; the rest is so a cable overmold can
+    # actually seat rather than bottoming out on the wall.
+    "usb_span_y": 26.0,
+    "usb_span_z": 11.0,
     "esp_shift_x": 12.0,      # board offset toward the USB wall
     "esp_fit": 0.4,           # clearance around the board in its cradle
 
@@ -67,7 +74,10 @@ P = {
     "bezel_t": 2.0,           # front face thickness
     "wall": 3.0,
     "lid_t": 2.5,
-    "cavity_d": 24.0,         # clear depth behind the module for electronics
+    # Floor only. Actual cavity depth is derived from the ESP32 stack so the
+    # two cannot drift apart - at 16.5 of stack the old fixed 24.0 left the
+    # WROOM module about 1mm from the back of the display.
+    "cavity_d_min": 20.0,
 
     # --- screws ------------------------------------------------------------
     "boss_od": 7.0,
@@ -93,7 +103,9 @@ def derived(p):
     d["mod_t"] = p["disp_panel_t"] + p["disp_pcb_t"]
     d["OW"] = p["disp_w"] + p["fit"] + 2 * p["margin"]
     d["OH"] = p["disp_h"] + p["fit"] + 2 * p["margin"]
-    d["front_depth"] = p["bezel_t"] + d["mod_t"] + 0.4 + p["cavity_d"]
+    d["cavity_d"] = max(p["cavity_d_min"],
+                        p["esp_stack_h"] + p["esp_pcb_t"] + p["esp_top_clear"])
+    d["front_depth"] = p["bezel_t"] + d["mod_t"] + 0.4 + d["cavity_d"]
     d["pocket_z"] = p["bezel_t"]
     d["pocket_d"] = d["mod_t"] + 0.4
     d["cavity_z"] = d["pocket_z"] + d["pocket_d"]
@@ -166,15 +178,15 @@ def build_front():
 
     # Main cavity for the electronics.
     s = s.cut(box(D["OW"] - 2 * P["wall"], D["OH"] - 2 * P["wall"],
-                  P["cavity_d"] + 1,
+                  D["cavity_d"] + 1,
                   P["wall"], P["wall"], D["cavity_z"]))
 
     # Screw bosses rise from the back of the module pocket, so they also stop
     # the module lifting out of its pocket.
     for (bx, by) in boss_positions():
-        b = cyl(P["boss_od"] / 2, P["cavity_d"], bx, by, D["cavity_z"])
+        b = cyl(P["boss_od"] / 2, D["cavity_d"], bx, by, D["cavity_z"])
         s = s.fuse(b)
-        s = s.cut(cyl(P["boss_pilot"] / 2, P["cavity_d"] + 1,
+        s = s.cut(cyl(P["boss_pilot"] / 2, D["cavity_d"] + 1,
                       bx, by, D["cavity_z"]))
 
     # USB-C access through the right wall, aligned to where the board actually

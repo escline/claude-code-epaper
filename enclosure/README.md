@@ -44,8 +44,8 @@ wedge.
 
 | Part | Size | Print orientation |
 | --- | --- | --- |
-| `front-shell` | 121.4 × 96.9 × 29.2 mm | **Face down** (bezel on the plate) |
-| `back-shell` | 121.4 × 113.0 × 49.7 mm | **Angled wedge face down** |
+| `front-shell` | 121.4 × 96.9 × 30.3 mm | **Face down** (bezel on the plate) |
+| `back-shell` | 121.4 × 113.4 × 50.8 mm | **Angled wedge face down** |
 | `fit-check` | 104 × 50 × 16.3 mm | Flat, as oriented |
 
 Neither shell needs supports in the orientation above. Face-down printing also
@@ -73,21 +73,29 @@ Check that:
 The build prints a warning if any part comes out as more than one solid, which
 is what a feature floating unsupported in mid-air looks like.
 
-## Dimensions that still need measuring
+## Dimensions
 
-These are estimates. Measure with calipers and edit `P` in `enclosure.py`:
+Measured with calipers:
+
+| Parameter | Value | Note |
+| --- | --- | --- |
+| `esp_l` × `esp_w` | 63.5 × 28.2 | ESP32 PCB |
+| `esp_stack_h` | 19.5 | Dupont housings end at 16.5; the extra 3 lets the wires turn out of the housing rather than being crushed against the lid |
+| `usb_span_y` | 26.0 | Ports are 20.7 outer-to-outer; the rest is cable-overmold clearance |
+
+Still estimated — the fit-check coupon is what confirms these:
 
 | Parameter | Current | What to measure |
 | --- | --- | --- |
-| `esp_l`, `esp_w` | 63.5 × 25.5 | ESP32 PCB length and width |
-| `esp_stack_h` | 16.0 | PCB underside to the bottom of the plugged-in Dupont housings — drives case depth |
 | `disp_panel_t` | 1.2 | Glass/film thickness bonded to the module's front |
 | `active_dx`, `active_dy` | 0, 0 | Offset of the visible image from the module centre. Measure front-face edge to glass edge on all four sides; if left ≠ right, that difference ÷ 2 is `active_dx` |
-| `usb_span_y` | 24.0 | Across both USB-C ports, outer edge to outer edge |
 
 `disp_w`, `disp_h`, `active_w` and `active_h` are Waveshare's published figures
-(103.0 × 78.5, active 84.8 × 63.6) and should be right, but they cost nothing to
-confirm.
+(103.0 × 78.5, active 84.8 × 63.6).
+
+`cavity_d` is **derived**, not set: it follows `esp_stack_h + esp_pcb_t +
+esp_top_clear`. It used to be a fixed 24.0, which at the real stack height would
+have left the WROOM module about 1 mm off the back of the display.
 
 ## Assembly
 
