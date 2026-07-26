@@ -354,7 +354,11 @@ def main():
     check("rear of the stand is thick enough to print",
           t_back >= P["stand_min_t"] - 0.6, "%.1f mm" % t_back)
 
-    # Pegs must land in the sockets.
+    # Pegs must land in the sockets, and both must be at the same end of the
+    # case. Matching them by construction is not enough - locate each one in
+    # the built solids and compare, since getting them at opposite ends would
+    # mean the case only fits on the stand facing backwards.
+    st_case = build_stand(for_print=False)
     for sx in D["peg_x"]:
         check("stand peg at x=%.0f enters a socket" % sx,
               not solid(front, (sx, P["peg_h"] / 2, P["peg_z"])),
@@ -362,6 +366,25 @@ def main():
         check("socket is inside solid material at x=%.0f" % sx,
               solid(front, (sx + P["peg_d"], P["peg_h"] / 2, P["peg_z"])),
               "material beside the socket")
+
+        # Find the socket and the peg independently along z.
+        n = 200
+        sock = [D["front_depth"] * (i + 0.5) / n for i in range(n)
+                if not solid(front, (sx, 2.0, D["front_depth"] * (i + 0.5) / n))]
+        peg = [D["front_depth"] * (i + 0.5) / n for i in range(n)
+               if solid(st_case, (sx, 2.0, D["front_depth"] * (i + 0.5) / n))]
+        if sock and peg:
+            zc_s = (min(sock) + max(sock)) / 2
+            zc_p = (min(peg) + max(peg)) / 2
+            check("peg and socket are at the same depth at x=%.0f" % sx,
+                  abs(zc_s - zc_p) < 1.0,
+                  "socket centre z=%.1f, peg centre z=%.1f" % (zc_s, zc_p))
+            check("both sit near the screen, not the lid, at x=%.0f" % sx,
+                  zc_s < D["front_depth"] / 3 and zc_p < D["front_depth"] / 3,
+                  "z=%.1f of %.1f deep" % (zc_s, D["front_depth"]))
+        else:
+            check("peg and socket both found at x=%.0f" % sx, False,
+                  "socket %d samples, peg %d samples" % (len(sock), len(peg)))
 
     print("\nAssembled on a desk")
     # Rotate the assembly into its resting orientation and see what touches the
