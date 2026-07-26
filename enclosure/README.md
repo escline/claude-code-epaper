@@ -62,13 +62,41 @@ a full print. It takes minutes rather than hours. Two zones: the bezel corner
 with its module pocket and an M3 boss, and one short end of the ESP32 cradle
 with both pillars and their L brackets at true spacing.
 
-Check that:
+### How to test with it
 
-1. The display module's corner drops into the pocket without force, and the
-   bezel lip covers the edge of the glass without intruding on the image.
-2. An M3 self-tapping screw bites in the boss without splitting it.
-3. The ESP32 board's short edge drops between the two brackets — snug, not
-   tight. This is the measurement most likely to be wrong.
+The larger end has an L-shaped raised rail with a peg at the corner — the
+display tests. The smaller end is a flat pad with two pillars — the ESP32 test.
+
+**1. Pocket fit.** Set the display module *face down* with its corner nested
+inside the L rail. It should drop in without pushing, and not rock. Run a
+fingernail from the rail across onto the module's back: it should sit about
+0.4 mm *below* the rail. If it stands proud, `disp_panel_t` is too small and
+the real case will not close — increase it by however far it stands out.
+
+**2. Bezel overlap.** With the module still seated, look through the window
+from the underside. You should see the white active area with the lip covering
+roughly 0.5 mm of its edge, evenly on both sides. Bare PCB visible through the
+window means the window is offset.
+
+Rather than judge that by eye, measure the module directly: on its **front**
+face, PCB edge to the start of the white area, on all four sides. Half the
+left/right difference is `active_dx`; half the top/bottom difference is
+`active_dy`.
+
+**3. Screw boss.** Drive an M3×8 self-tapping screw into the 2.5 mm pilot. It
+should cut its own thread and hold. Splitting means the pilot is too small,
+spinning freely means too large.
+
+**4. Cradle width.** Lower the ESP32's **short end** between the two tabs so
+the PCB rests on both pillar tops. Only one end is supported here — you are
+testing width. It should drop in with barely perceptible side play. Needing
+force means `esp_w` is short.
+
+### What the coupon does not test
+
+- `esp_stack_h`. The coupon's pillars are 8 mm; the real cradle is 19.5 mm.
+  Get this wrong and the back shell will not close. Measure it with calipers.
+- The wedge angle, and the overall closure of the two shells.
 
 The build prints a warning if any part comes out as more than one solid, which
 is what a feature floating unsupported in mid-air looks like.
