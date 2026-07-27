@@ -113,7 +113,28 @@
 // than a universal truth; if the panel disagrees with a nearby station, this is
 // the first knob to turn. "best_match" is a valid value if you want the old
 // behaviour back.
+//
+// Applies to the *numbers* only. Condition codes come from
+// WEATHER_CONDITION_MODEL below - see the note there for why.
 #define WEATHER_MODEL "ecmwf_ifs025"
+
+// Which model the WMO condition codes come from - the current condition and
+// the forecast strip's icons. Deliberately *not* WEATHER_MODEL.
+//
+// ECMWF ifs025 is a 0.25 deg global model, and a code is a much harsher test of
+// resolution than a temperature. Three things compound: the grid snaps up to
+// ~20 km away, a 625 km^2 grid-box mean smears any shower in the cell across
+// all of it, and `current` interpolates between hourly steps - so the leading
+// edge of a forecast rain band reads as drizzle over the whole cell, early.
+// Observed: panel showing "Light drizzle" with 100 % cloud under a clear sky,
+// while the nearest station reported Clear and best_match returned code 0 with
+// 4 % cloud. Temperature was fine throughout; only the code was wrong.
+//
+// best_match resolves to a high-resolution regional model (HRRR/NBM in the US)
+// on a ~2 km grid, which is the right tool for "is it raining *here*". Costs
+// one extra request per refresh; if that fetch fails the WEATHER_MODEL codes
+// are kept, so the screen never loses its icon.
+#define WEATHER_CONDITION_MODEL "best_match"
 
 // Days in the forecast strip. These are *tomorrow onward* - today's high and
 // low already sit next to the current conditions. Five columns across 372 px

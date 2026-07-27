@@ -72,6 +72,18 @@ fast, it didn't happen.
   the formula** — the `[wx]` serial line prints it. Ground truth for US
   locations is `api.weather.gov/points/<lat>,<lon>`, which reports `heatIndex`
   directly.
+- **Numbers and condition codes come from different models, in two requests.**
+  `WEATHER_MODEL` (ECMWF) is right for temperature and dew point and wrong for
+  "is it raining *here*": 0.25° snaps the grid point up to ~20 km away, a
+  625 km² grid-box mean smears any shower across the whole cell, and `current`
+  interpolates between hourly steps — which is how the panel drew *light
+  drizzle* under a cloudless sky while the station 10 km away reported Clear.
+  `WEATHER_CONDITION_MODEL` (`best_match`, so HRRR/NBM in the US, ~2 km) supplies
+  the current code and the strip's icons via a second 530-byte request; if it
+  fails the ECMWF codes are kept, and the `[wx]` line's `[model + model]` tag
+  says which was used. **Multi-model can't collapse this into one request** —
+  `models=a,b` on a `current` block silently returns just one model's values,
+  unsuffixed. Only `hourly` returns suffixed per-model keys.
 - **Adafruit GFX fonts stop at ASCII 126**, so there is no `°` glyph. `drawTemp`
   in `src/ui.cpp` draws it as a ring, sized from the font's measured cap height
   rather than a per-font constant.

@@ -230,6 +230,89 @@ static float apparentInDisplayUnits(float temp, float rh, float wind) {
 #define WX_UNIT_QS "" // API defaults are already celsius and km/h
 #endif
 
+// Blocking GET + parse, shared by both requests below. `tag` only labels the
+// log lines, so a failure says which of the two fell over.
+static bool wxGetJson(const char *url, JsonDocument &doc, const char *tag) {
+  // Certificates are not pinned. This is a public, unauthenticated forecast on
+  // a display with no secrets to leak, and a pinned root would silently brick
+  // the weather screen the day Open-Meteo rotates it.
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(WEATHER_HTTP_TIMEOUT_MS / 1000);
+
+  HTTPClient http;
+  http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
+  http.setConnectTimeout(WEATHER_HTTP_TIMEOUT_MS);
+  if (!http.begin(client, url)) {
+    Serial.printf("[%s] http begin failed\n", tag);
+    return false;
+  }
+
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("[%s] GET failed, http=%d\n", tag, code);
+    http.end();
+    return false;
+  }
+
+  String body = http.getString();
+  http.end();
+
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    Serial.printf("[%s] parse failed: %s\n", tag, err.c_str());
+    return false;
+  }
+  return true;
+}
+
+// Overwrite the condition code and the strip's icons from
+// WEATHER_CONDITION_MODEL, leaving every number from WEATHER_MODEL alone.
+//
+// Failure is deliberately silent-ish and non-fatal: `w` already carries the
+// WEATHER_MODEL codes, so the caller commits those rather than dropping an
+// otherwise good fetch over a coarse icon.
+static bool applyConditionCodes(WeatherData &w) {
+  char url[512];
+  snprintf(url, sizeof(url),
+           "https://api.open-meteo.com/v1/forecast"
+           "?latitude=%.4f&longitude=%.4f"
+           "&current=weather_code&daily=weather_code"
+           "&timezone=auto&forecast_days=%d"
+           "&models=" WEATHER_CONDITION_MODEL,
+           (double)WEATHER_LAT, (double)WEATHER_LON,
+           WEATHER_FORECAST_DAYS + 1);
+
+  JsonDocument doc;
+  if (!wxGetJson(url, doc, "wx code"))
+    return false;
+
+  JsonObjectConst cur = doc["current"];
+  if (cur.isNull())
+    return false;
+
+  // Only take the code if it is actually present. `| -1` would otherwise map a
+  // missing field onto Unknown and blank an icon we already had.
+  if (!cur["weather_code"].isNull()) {
+    int wmo = cur["weather_code"] | -1;
+    w.icon = wxIconForCode(wmo);
+    strncpy(w.condition, wxConditionForCode(wmo), sizeof(w.condition) - 1);
+    w.condition[sizeof(w.condition) - 1] = '\0';
+  }
+
+  // Both requests use timezone=auto and the same forecast_days, so index 0 is
+  // today in each and the strip lines up with the highs and lows beside it.
+  JsonArrayConst codes = doc["daily"]["weather_code"];
+  for (int i = 0; i < WEATHER_FORECAST_DAYS; i++) {
+    size_t src = (size_t)i + 1;
+    if (src >= codes.size())
+      break;
+    if (w.days[i].valid)
+      w.days[i].icon = wxIconForCode(codes[src] | -1);
+  }
+  return true;
+}
+
 bool weatherFetch(WeatherData &out) {
   if (WiFi.status() != WL_CONNECTED)
     return false;
@@ -248,100 +331,86 @@ bool weatherFetch(WeatherData &out) {
            (double)WEATHER_LAT, (double)WEATHER_LON,
            WEATHER_FORECAST_DAYS + 1); // +1: index 0 is today
 
-  // Certificates are not pinned. This is a public, unauthenticated forecast on
-  // a display with no secrets to leak, and a pinned root would silently brick
-  // the weather screen the day Open-Meteo rotates it.
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(WEATHER_HTTP_TIMEOUT_MS / 1000);
-
-  HTTPClient http;
-  http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
-  http.setConnectTimeout(WEATHER_HTTP_TIMEOUT_MS);
-  if (!http.begin(client, url)) {
-    Serial.println("[wx] http begin failed");
-    return false;
-  }
-
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("[wx] GET failed, http=%d\n", code);
-    http.end();
-    return false;
-  }
-
-  String body = http.getString();
-  http.end();
-
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, body);
-  if (err) {
-    Serial.printf("[wx] parse failed: %s\n", err.c_str());
-    return false;
-  }
-
-  JsonObjectConst cur = doc["current"];
-  JsonObjectConst daily = doc["daily"];
-  if (cur.isNull() || daily.isNull()) {
-    Serial.println("[wx] response had no current/daily block");
-    return false;
-  }
-
   // Build into a local and commit at the end, so a response that turns out to
   // be half-formed can't leave a mix of new and old values on the screen.
   WeatherData w;
+  float rh = 50.0f; // wanted by the log line below, after `doc` is gone
 
-  int wmo = cur["weather_code"] | -1;
-  const float temp = cur["temperature_2m"] | 0.0f;
-  const float wind = cur["wind_speed_10m"] | 0.0f;
-  // Default to 50 % rather than 0: a missing humidity should leave the feels-
-  // like near the air temperature, not invent a desert.
-  const float rh = cur["relative_humidity_2m"] | 50.0f;
+  // Scoped so the 6-day document is freed before the condition request opens
+  // its own TLS session - the handshake wants ~40 KB and there is no reason to
+  // hold both at once.
+  {
+    JsonDocument doc;
+    if (!wxGetJson(url, doc, "wx"))
+      return false;
 
-  w.temp = roundToInt(temp);
-  w.feels = roundToInt(apparentInDisplayUnits(temp, rh, wind));
-  w.icon = wxIconForCode(wmo);
-  strncpy(w.condition, wxConditionForCode(wmo), sizeof(w.condition) - 1);
-  w.wind = roundToInt(wind);
-  strncpy(w.windDir, compass(cur["wind_direction_10m"] | 0.0f),
-          sizeof(w.windDir) - 1);
+    JsonObjectConst cur = doc["current"];
+    JsonObjectConst daily = doc["daily"];
+    if (cur.isNull() || daily.isNull()) {
+      Serial.println("[wx] response had no current/daily block");
+      return false;
+    }
 
-  JsonArrayConst dates = daily["time"];
-  JsonArrayConst codes = daily["weather_code"];
-  JsonArrayConst highs = daily["temperature_2m_max"];
-  JsonArrayConst lows = daily["temperature_2m_min"];
+    int wmo = cur["weather_code"] | -1;
+    const float temp = cur["temperature_2m"] | 0.0f;
+    const float wind = cur["wind_speed_10m"] | 0.0f;
+    // Default to 50 % rather than 0: a missing humidity should leave the feels-
+    // like near the air temperature, not invent a desert.
+    rh = cur["relative_humidity_2m"] | 50.0f;
 
-  if (highs.size() > 0 && lows.size() > 0) {
-    w.hi = roundToInt(highs[0] | 0.0f);
-    w.lo = roundToInt(lows[0] | 0.0f);
-    w.hasToday = true;
+    w.temp = roundToInt(temp);
+    w.feels = roundToInt(apparentInDisplayUnits(temp, rh, wind));
+    w.icon = wxIconForCode(wmo);
+    strncpy(w.condition, wxConditionForCode(wmo), sizeof(w.condition) - 1);
+    w.wind = roundToInt(wind);
+    strncpy(w.windDir, compass(cur["wind_direction_10m"] | 0.0f),
+            sizeof(w.windDir) - 1);
+
+    JsonArrayConst dates = daily["time"];
+    JsonArrayConst codes = daily["weather_code"];
+    JsonArrayConst highs = daily["temperature_2m_max"];
+    JsonArrayConst lows = daily["temperature_2m_min"];
+
+    if (highs.size() > 0 && lows.size() > 0) {
+      w.hi = roundToInt(highs[0] | 0.0f);
+      w.lo = roundToInt(lows[0] | 0.0f);
+      w.hasToday = true;
+    }
+
+    // Index 0 is today, already shown beside the current conditions; the strip
+    // starts at tomorrow.
+    for (int i = 0; i < WEATHER_FORECAST_DAYS; i++) {
+      size_t src = (size_t)i + 1;
+      if (src >= highs.size() || src >= lows.size())
+        break;
+
+      WeatherDay &d = w.days[i];
+      d.hi = roundToInt(highs[src] | 0.0f);
+      d.lo = roundToInt(lows[src] | 0.0f);
+      d.icon = wxIconForCode(src < codes.size() ? (codes[src] | -1) : -1);
+      if (src < dates.size())
+        weekdayLabel(dates[src] | "", d.label, sizeof(d.label));
+      d.valid = true;
+    }
   }
 
-  // Index 0 is today, already shown beside the current conditions; the strip
-  // starts at tomorrow.
-  for (int i = 0; i < WEATHER_FORECAST_DAYS; i++) {
-    size_t src = (size_t)i + 1;
-    if (src >= highs.size() || src >= lows.size())
-      break;
-
-    WeatherDay &d = w.days[i];
-    d.hi = roundToInt(highs[src] | 0.0f);
-    d.lo = roundToInt(lows[src] | 0.0f);
-    d.icon = wxIconForCode(src < codes.size() ? (codes[src] | -1) : -1);
-    if (src < dates.size())
-      weekdayLabel(dates[src] | "", d.label, sizeof(d.label));
-    d.valid = true;
-  }
+  // Second request: conditions from a high-resolution model, because
+  // WEATHER_MODEL is chosen for its numbers and reads drizzle over a whole
+  // grid cell. Non-fatal - see applyConditionCodes().
+  const bool codesOk = applyConditionCodes(w);
 
   time_t now = time(nullptr);
   w.fetchedAt = (now > 1600000000) ? (long)now : 0;
   w.valid = true;
 
   out = w;
+  // The model tags matter when a reading looks wrong: they say whether the
+  // condition came from the high-resolution model or fell back to the numbers'.
   Serial.printf("[wx] %d%s (feels %d, rh %d%%) %s, wind %d %s, %d-day forecast"
-                " [%s]\n",
+                " [%s + %s]\n",
                 w.temp, WEATHER_IMPERIAL ? "F" : "C", w.feels, roundToInt(rh),
                 w.condition, w.wind, w.windDir, WEATHER_FORECAST_DAYS,
-                WEATHER_MODEL);
+                WEATHER_MODEL,
+                codesOk ? WEATHER_CONDITION_MODEL : WEATHER_MODEL " (fallback)");
   return true;
 }
