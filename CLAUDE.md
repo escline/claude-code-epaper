@@ -153,8 +153,13 @@ fast, it didn't happen.
   2026-08-01: two samples after an app restart, then nothing for an hour while
   the app ran normally, across several view switches — a parked chat renderer
   was the obvious theory and putting the chat view in the foreground for two
-  poll intervals disproved it. Treat the cause as unknown and the age as the
-  only thing worth reading. A stale 5-hour figure would otherwise hold the gauge
+  poll intervals disproved it, and a tray quit and relaunch produced no samples
+  at all in the 23 minutes after — so a restart is not a remedy either, and the
+  two relaunches that day behaved differently from each other. Treat the cause
+  as unknown and the age as the only thing worth reading. Nothing here needs
+  fixing on this side: `freshMs` ignores the frozen file, and `rate_limits`
+  covers the gauges whenever Claude Code is the thing running, which is whenever
+  the status screen is up at all. A stale 5-hour figure would otherwise hold the gauge
   high long after the window drained;
   and **a rise never creates a session**, only the `active in another Claude app`
   detail line, and only when no terminal is open. There is no per-message feed
