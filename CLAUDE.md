@@ -205,12 +205,16 @@ fast, it didn't happen.
   `sessionGraceMs` after you move. That is the display being accurate: the
   session really did end. Don't debug it as a bug, and don't lengthen the grace
   window to hide it — the count is right and the screens are right.
-- **Closing the desktop app's window does not close the session, and that is
-  correct.** It goes to the tray still running; quitting from the tray fires a
-  normal `SessionEnd` (`reason=other`) and the panel hands over to the weather
-  within the settle window. A panel still showing IDLE after you "closed"
-  Claude Code is the display being right — check the tray before debugging the
-  bridge, and `bridge.js status` will name the live instance. What genuinely
+- **With "Keep in task tray" on — the default — closing the desktop app's
+  window does not close the session, and that is correct.** It goes to the tray
+  still running; quitting from the tray fires a normal `SessionEnd`
+  (`reason=other`) and the panel hands over to the weather within the settle
+  window. A panel still showing IDLE after you "closed" Claude Code is the
+  display being right — check the tray before debugging the bridge, and
+  `bridge.js status` will name the live instance. With that setting off, closing
+  the window quits the app, and the panel is covered either way: a graceful quit
+  fires the hook, and an abrupt one drops the instance file, which
+  `pollSessionFiles()` catches on the next poll. What genuinely
   fires no hook is a force-kill, a crash or a logoff; that is what
   `pollSessionFiles()` is for, and before it those hung for the full
   `sessionTtlMs`, eight hours. It watches
