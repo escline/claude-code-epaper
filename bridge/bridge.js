@@ -799,8 +799,11 @@ function runDaemon() {
     planPrev = { fh: sample.fh, sd: sample.sd };
 
     // A sample only proves what the account looked like when the desktop app
-    // last polled. Once the app is closed the file freezes, and a stale 5-hour
-    // figure would hold the gauge high long after the window had drained.
+    // last polled, and it stops polling for more reasons than being closed -
+    // observed parking itself within ten minutes of switching to the Claude
+    // Code view, with the app still running. Either way the file freezes, and a
+    // stale 5-hour figure would hold the gauge high long after the window had
+    // drained, so age is what matters and the cause is not worth guessing at.
     const age = Date.now() - sample.t;
     if (age > cfg.planUsage.freshMs) return false;
 
@@ -1216,12 +1219,15 @@ async function runStatus() {
       const s = readLatestPlanSample(file);
       if (!s) throw new Error('no usable samples');
       const age = Math.round((Date.now() - s.t) / 1000);
-      // Older than freshMs means the desktop app is closed, so its numbers are
-      // frozen and the daemon is ignoring them - which is the answer to "why
-      // are the gauges not moving".
+      // Older than freshMs means the daemon is ignoring these numbers, which is
+      // the answer to "why are the gauges not moving". Deliberately does not
+      // say why they stopped: a closed app and an open one whose usage poller
+      // is parked - which is what happens while you are in the Claude Code view
+      // rather than the chat view - look identical from here, and asserting the
+      // wrong one sends you looking in the wrong place.
       console.log(
         `desktop: 5h ${s.fh}% 7d ${s.sd}%, sampled ${age}s ago` +
-          (age * 1000 > cfg.planUsage.freshMs ? ' (stale, app closed - ignored)' : '')
+          (age * 1000 > cfg.planUsage.freshMs ? ' (stale, not polling - ignored)' : '')
       );
     } catch (e) {
       console.log(`desktop: ${file} unavailable (${e.message})`);

@@ -148,8 +148,12 @@ fast, it didn't happen.
   tested in the daemon: **the more recently *observed* source wins** (a sample
   older than the last `rate_limits` is ignored, which is also how reset times
   survive — the file has no field for them); **a sample older than `freshMs` is
-  ignored entirely**, because the file freezes when the desktop app closes and a
-  stale 5-hour figure would hold the gauge high long after the window drained;
+  ignored entirely**, because the file freezes whenever the desktop app stops
+  polling — closing it does that, and so does simply switching to the Claude
+  Code view, which parks the chat renderer the poller lives in (observed: two
+  samples after a restart, then nothing for half an hour while the app ran
+  normally). A stale 5-hour figure would otherwise hold the gauge high long
+  after the window drained;
   and **a rise never creates a session**, only the `active in another Claude app`
   detail line, and only when no terminal is open. There is no per-message feed
   behind desktop activity — its log carries nothing finer than 5-minute polls —
