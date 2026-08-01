@@ -16,6 +16,12 @@
   "sessionTtlMs": 28800000,
   "_comment_session_grace": "ms a change in the session count must hold before it reaches the panel. The count picks the screen, and each screen swap is a full-panel refresh; the desktop app opens and discards throwaway sessions when it mounts a project view, which without this flashed the status screen up and back.",
   "sessionGraceMs": 10000,
+  "_comment_session_files": "Expire a session as soon as its Claude Code instance is gone, by watching the per-instance files in ~/.claude/sessions. Quitting the desktop app kills the process without firing SessionEnd, so without this the panel holds a closed session for the full sessionTtlMs. Only ever expires a session a file was seen for; anything else keeps the TTL. Empty path = $CLAUDE_CONFIG_DIR/sessions, or ~/.claude/sessions.",
+  "sessionFiles": {
+    "enabled": true,
+    "path": "",
+    "pollMs": 15000
+  },
   "_comment_plan_usage": "Read the Claude desktop app's plan-usage-history.json so the 5h/7d gauges stay current when Claude Code isn't running. The numbers are account-wide (desktop, web, mobile, Code). Empty path = platform default under the Claude app data dir. freshMs: ignore the file's last sample once it is older than this, since it freezes when the desktop app closes.",
   "planUsage": {
     "enabled": true,

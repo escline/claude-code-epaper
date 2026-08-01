@@ -116,6 +116,19 @@ zero would have turned a 0.4 s flash into a 10 s one, since it is the
 `SessionStart` that swaps the screen. Nothing else waits — while the weather
 screen is up, the zones that show status and detail are inactive anyway.
 
+**Knowing a session is over is harder than it sounds.** Exiting the CLI fires
+`SessionEnd`; quitting the desktop app does not — the process is killed and the
+hook never runs. Left at that, a closed app held the panel on a status screen
+until `sessionTtlMs` expired eight hours later. So the daemon also watches
+`~/.claude/sessions/`, where Claude Code writes one file per running instance
+carrying its `sessionId` and `pid`, and expires a session whose file has
+vanished or whose pid is gone. That directory is undocumented internals, and
+believing it wrongly is the expensive direction — an empty directory looks
+exactly like "nothing is running" — so it may only ever *end* a session, never
+start one, and only one it has already seen a file for. A Claude Code that
+doesn't write them is never expired this way; it keeps the TTL, which is to say
+the old behaviour. `node bridge/bridge.js status` lists what it can see.
+
 Switching screens forces a full refresh rather than a run of partials — every
 pixel below the header changes, and a full pass is also the cheapest way to
 clear the ghost of the layout being replaced.
@@ -397,11 +410,13 @@ with the reason on the footer line.
 that says nothing is running. Check the serial log for `[wx]` lines — a failed
 GET or an unparseable response is logged there. If fetches are fine, the state
 is the culprit: `node bridge/bridge.js demo weather` forces it, and if that
-works but normal use doesn't, a session is being left open in the daemon's map;
-`bridge.log` now records `session start source=` and `session end reason=` for
-every one, so the transcript-less desktop probes are distinguishable from a real
-terminal at a glance. A stuck session is what `sessionTtlMs` exists to clean up,
-deliberately after 8 hours —
+works but normal use doesn't, a session is being left open in the daemon's map.
+`node bridge/bridge.js status` lists every Claude Code instance the daemon can
+see; if it says *no instance files* while the panel still shows a session, the
+liveness watch isn't reaching them and the stale entry is waiting on the TTL.
+`bridge.log` records `session start source=`, `session end reason=` and every
+expiry, so the transcript-less desktop probes are distinguishable from a real
+terminal at a glance. That TTL is the last resort, deliberately 8 hours —
 `statusLine` only fires when there is traffic, so a session left open overnight
 is silent but genuinely still open, and pruning it on the idle timescale would
 paint weather over a live terminal.

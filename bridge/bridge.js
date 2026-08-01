@@ -42,6 +42,7 @@ function loadConfig() {
     sessionTtlMs: 28800000,
     sessionGraceMs: 10000,
     planUsage: { enabled: true, path: '', pollMs: 60000, freshMs: 900000 },
+    sessionFiles: { enabled: true, path: '', pollMs: 15000 },
   };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -51,6 +52,7 @@ function loadConfig() {
       mqtt: { ...defaults.mqtt, ...(raw.mqtt || {}) },
       topics: { ...defaults.topics, ...(raw.topics || {}) },
       planUsage: { ...defaults.planUsage, ...(raw.planUsage || {}) },
+      sessionFiles: { ...defaults.sessionFiles, ...(raw.sessionFiles || {}) },
     };
   } catch {
     return defaults;
@@ -108,6 +110,70 @@ function readLatestPlanSample(file) {
     return { t: s.t, fh, sd };
   }
   return null;
+}
+
+// --------------------------------------------------------------------------
+// Session liveness
+//
+// Quitting the desktop app does not fire SessionEnd - the process is killed and
+// the hook never runs - so the daemon used to hold a dead session until
+// sessionTtlMs, eight hours later, and the panel sat on a status screen for a
+// window that had been closed all morning.
+//
+// Claude Code writes one file per running instance into ~/.claude/sessions,
+// named for the pid:
+//
+//   {"pid": 68796, "sessionId": "6ca39279-...", "cwd": "...",
+//    "procStart": "6392113575...", "version": "2.1.219",
+//    "kind": "interactive", "entrypoint": "claude-desktop"}
+//
+// which is a real liveness signal: sessionId maps straight onto the daemon's
+// map, and the file goes away when the instance does. It is also undocumented
+// internals, and the failure mode of trusting it wrongly is the bad one - an
+// empty directory would look exactly like "nothing is running" and paint
+// weather over a live terminal. So it is only ever used to *expire* a session
+// we have already seen a file for; anything this mechanism has never described
+// keeps the eight-hour TTL. If a future version stops writing these, or renames
+// the directory, or changes the shape, the fallback is the old behaviour rather
+// than a wrong screen.
+// --------------------------------------------------------------------------
+function defaultSessionsDir() {
+  const base = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return path.join(base, 'sessions');
+}
+
+// sessionId -> {pid, entrypoint} for every instance file on disk. Individual
+// files are skipped rather than fatal: they belong to another process and may
+// be half-written, or a shape this doesn't know.
+function readSessionFiles(dir) {
+  const out = new Map();
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+      if (d && typeof d.sessionId === 'string') {
+        out.set(d.sessionId, { pid: d.pid, entrypoint: d.entrypoint || 'unknown' });
+      }
+    } catch {}
+  }
+  return out;
+}
+
+// Signal 0 tests for existence without delivering anything. EPERM means the
+// process is there but owned by someone else, which still counts as alive.
+// A file left behind by a force-kill is the case this catches.
+//
+// procStart is deliberately not checked: telling a reused pid from the original
+// needs a WMI query per session per poll, and being wrong about it only holds a
+// dead session slightly longer - the same direction the TTL already errs in.
+function pidAlive(pid) {
+  if (typeof pid !== 'number') return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code !== 'ESRCH';
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -759,6 +825,61 @@ function runDaemon() {
     return changed;
   }
 
+  // Sessions we have seen an instance file for, and may therefore expire when
+  // it disappears. A session that never had one is not this mechanism's to
+  // judge - it keeps the TTL.
+  const sessionsDir = cfg.sessionFiles.path || defaultSessionsDir();
+  const fileBackedSessions = new Set();
+
+  // Returns true if the snapshot changed and should be published.
+  function pollSessionFiles() {
+    let onDisk;
+    try {
+      onDisk = readSessionFiles(sessionsDir);
+    } catch {
+      return false; // no such directory: this Claude Code doesn't write them
+    }
+    for (const sid of onDisk.keys()) fileBackedSessions.add(sid);
+
+    let ended = 0;
+    for (const sid of liveSessions.keys()) {
+      if (!fileBackedSessions.has(sid)) continue;
+      if (onDisk.has(sid) && pidAlive(onDisk.get(sid).pid)) continue;
+      log(
+        `session ${sid.slice(0, 8)} is gone (` +
+          (onDisk.has(sid) ? `pid ${onDisk.get(sid).pid} not running` : 'instance file removed') +
+          ') - expiring it'
+      );
+      dropSession(sid);
+      ended++;
+    }
+    // Never grows past the sessions this daemon has actually seen, but there is
+    // no reason to remember one that is over on both sides.
+    for (const sid of fileBackedSessions) {
+      if (!liveSessions.has(sid) && !onDisk.has(sid)) fileBackedSessions.delete(sid);
+    }
+    if (!ended) return false;
+
+    // Only when the last one goes: another session may still be mid-turn, and
+    // an app that was quit while working must not leave WORKING on the panel -
+    // the weather screen needs IDLE as well as a zero count.
+    if (liveSessions.size === 0) {
+      state.status = 'idle';
+      state.detail = 'no active session';
+    }
+    return true;
+  }
+
+  if (cfg.sessionFiles.enabled) {
+    setInterval(() => {
+      try {
+        if (pollSessionFiles()) publish();
+      } catch (e) {
+        log(`session file poll failed: ${e.message}`);
+      }
+    }, cfg.sessionFiles.pollMs).unref?.();
+  }
+
   if (cfg.planUsage.enabled) {
     setInterval(() => {
       try {
@@ -833,12 +954,13 @@ function runDaemon() {
       publish();
     }
 
-    // A force-kill leaves a session in the map with no SessionEnd to clear it,
-    // and a stuck count would keep the weather screen off the panel forever.
-    // The TTL is deliberately long: statusline only fires when there is
-    // traffic, so a session left open overnight is silent but genuinely still
-    // open - pruning it on the idle timescale would paint weather over a live
-    // terminal, which is the behaviour we specifically didn't want.
+    // Backstop under the instance-file watch above, for sessions it can't speak
+    // for: a Claude Code that doesn't write those files, or one whose file
+    // outlived it in a way pidAlive() can't see. The TTL is deliberately long:
+    // statusline only fires when there is traffic, so a session left open
+    // overnight is silent but genuinely still open - pruning it on the idle
+    // timescale would paint weather over a live terminal, which is the
+    // behaviour we specifically didn't want.
     const cutoff = Date.now() - cfg.sessionTtlMs;
     let pruned = 0;
     for (const [sid, seenAt] of liveSessions) {
@@ -997,6 +1119,29 @@ async function runStatus() {
   console.log(`topics:  ${cfg.topics.state} , ${cfg.topics.bridge}`);
   const ok = await sendToDaemon(cfg, { kind: 'ping' }, { spawnIfDown: false });
   console.log(`daemon:  ${ok ? `running on 127.0.0.1:${cfg.port}` : 'not running'}`);
+
+  const sdir = cfg.sessionFiles.path || defaultSessionsDir();
+  if (!cfg.sessionFiles.enabled) {
+    console.log('sessions: liveness disabled in config (only the TTL expires a session)');
+  } else {
+    try {
+      const found = readSessionFiles(sdir);
+      if (found.size === 0) {
+        console.log(`sessions: no instance files in ${sdir} - nothing is running`);
+      }
+      for (const [sid, s] of found) {
+        console.log(
+          `sessions: ${sid.slice(0, 8)} pid ${s.pid} ${s.entrypoint}` +
+            (pidAlive(s.pid) ? '' : ' (DEAD - will be expired)')
+        );
+      }
+    } catch {
+      // Not an error: this Claude Code may not write them, in which case the
+      // TTL is the only backstop and closing the app leaves the panel on a
+      // stale status screen. That is the old behaviour, not a broken install.
+      console.log(`sessions: ${sdir} not present - falling back to sessionTtlMs`);
+    }
+  }
 
   const file = cfg.planUsage.path || defaultPlanUsagePath();
   if (!cfg.planUsage.enabled) {

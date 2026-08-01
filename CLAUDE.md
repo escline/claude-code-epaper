@@ -21,14 +21,14 @@ before reporting a firmware change as done** — compiling is the only automated
 check the firmware has. For bridge changes, run the test below; `demo` plus a
 subscriber covers whatever it doesn't.
 
-`bridge/test/session-grace.test.js` is the one automated test: it spawns the
-real `bridge.js` on its own port, topics and log (via `EPAPER_BRIDGE_CONFIG` /
-`EPAPER_BRIDGE_LOG`), feeds it hooks the way Claude Code does, and asserts on
-what comes back off the broker — so it needs a reachable broker and skips
-without one, and it leaves the daemon driving the panel alone. Most of its
-runtime is deliberate waiting on the grace window. Publishing the raw session
-count instead of the settled one fails four of its ten checks, which is the
-check that it is testing anything at all.
+`bridge/test/` holds the automated tests. Each spawns the real `bridge.js` on
+its own port, topics and log (via `EPAPER_BRIDGE_CONFIG` / `EPAPER_BRIDGE_LOG`),
+feeds it hooks the way Claude Code does, and asserts on what comes back off the
+broker — so they need a reachable broker, skip without one, and leave the daemon
+driving the panel alone. Most of the runtime is deliberate waiting on grace and
+poll windows. Both have been mutation-checked: publishing the raw session count
+fails four of `session-grace`'s ten, and dropping the seen-a-file-first guard
+fails two of `session-liveness`'s ten.
 
 **SCons decides staleness by content hash, not timestamp, so `touch` does not
 force a recompile.** A build that "succeeds with no warnings" right after
@@ -174,6 +174,16 @@ fast, it didn't happen.
   `message` **values**, because Claude Code fires it both for permission prompts
   and for the idle "waiting for your input" nudge and only the first is really
   NEEDS YOU — check the log before assuming a repeat is a real prompt.
+- **Quitting the desktop app fires no `SessionEnd`** — the process is killed and
+  the hook never runs — so the session used to sit in the map until
+  `sessionTtlMs`, eight hours later, with the panel holding a status screen for
+  a window that had been closed all morning. `pollSessionFiles()` watches
+  `~/.claude/sessions/<pid>.json`, one file per running instance, carrying the
+  `sessionId` and `pid`. **It may only ever end a session, never start one, and
+  only one it has already seen a file for** — an empty directory has to stay
+  indistinguishable from a Claude Code that doesn't write them, or a version
+  that renames the directory would paint weather over a live terminal. Anything
+  it hasn't seen keeps the TTL. `bridge.js status` lists the files it can see.
 - **`sessions` is debounced by `sessionGraceMs`; nothing else in the snapshot
   is.** The desktop app opens a session when it mounts a project view and ends
   it under a second later — three in two minutes in one log, no transcript

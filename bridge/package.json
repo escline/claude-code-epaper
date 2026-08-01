@@ -8,7 +8,7 @@
     "daemon": "node bridge.js daemon",
     "status": "node bridge.js status",
     "demo": "node bridge.js demo",
-    "test": "node test/session-grace.test.js"
+    "test": "node test/session-grace.test.js && node test/session-liveness.test.js"
   },
   "dependencies": {
     "mqtt": "^5.10.1"
