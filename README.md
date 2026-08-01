@@ -423,6 +423,21 @@ terminal at a glance. That TTL is the last resort, deliberately 8 hours —
 is silent but genuinely still open, and pruning it on the idle timescale would
 paint weather over a live terminal.
 
+**Is the panel running the latest firmware?** `node bridge/bridge.js status`
+ends with a `panel:` line reading the build stamp the firmware publishes
+retained on connect, and compares it against `HEAD`:
+
+```
+panel:   online, 3b6e1e7 Aug  1 2026 08:14:22 (UC8176)
+panel:   up to date with HEAD (3b6e1e7)
+```
+
+`nothing retained` means it has never connected to this broker; *firmware
+predates the stamp* means it needs one more flash to start reporting. A
+`-dirty` suffix means that build had uncommitted changes in the tree, so the
+SHA alone doesn't identify it. The same value appears as the **Panel Firmware**
+diagnostic entity in Home Assistant, and on the first serial line at boot.
+
 **Weather says "stale".** No successful fetch in three hours. Usually WiFi;
 check the `[wx]` serial lines. The last known values stay on screen rather than
 being blanked, labelled so you know not to trust them.
@@ -466,6 +481,7 @@ There is currently no supported local source, so the display omits it.
 - `include/ui.h`, `src/ui.cpp` — zone-based rendering and repaint throttling
 - `src/main.cpp` — WiFi, MQTT, main loop
 - `src/paneltest.cpp` — standalone bring-up test (`-e paneltest`)
+- `scripts/build_stamp.py` — injects the git SHA the panel reports back
 - `bridge/bridge.js` — daemon + statusline/hook clients
 - `bridge/test/` — end-to-end tests against a real daemon and broker
 - `docs/claude-settings-snippet.json` — what to merge into Claude Code settings

@@ -106,6 +106,18 @@ fast, it didn't happen.
   zero rather than as no data yet. A boot checklist was tried here and removed —
   on a healthy boot the snapshot lands about two seconds after the first paint,
   so every row was still unticked for the whole time it was visible.
+- **The panel reports which build it is running, and it is the only thing that
+  can.** `scripts/build_stamp.py` (a `pre:` script on the `monitor` env only)
+  injects the git short SHA as `FW_GIT_SHA`; `main.cpp` publishes it retained to
+  `claude/display/device/info` on every connect, and `bridge.js status` compares
+  it against `HEAD` and says whether to reflash. Retained is the point — the
+  question "was this ever flashed?" is usually asked while the panel is
+  unplugged. The build *time* comes from `__DATE__`/`__TIME__`, not from the
+  script: a timestamp regenerated per invocation would change the define every
+  build and relink for nothing. It dates the last compile of `main.cpp`, so with
+  a dirty tree trust the `-dirty` marker, not the clock. `config.h` defines
+  `FW_GIT_SHA` as `"unstamped"` if absent, which is what keeps `paneltest` (no
+  extra script) compiling.
 - **Adafruit GFX fonts stop at ASCII 126**, so there is no `°` glyph. `drawTemp`
   in `src/ui.cpp` draws it as a ring, sized from the font's measured cap height
   rather than a per-font constant.

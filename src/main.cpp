@@ -119,6 +119,20 @@ static bool connectMqtt() {
   }
 
   mqtt.publish(TOPIC_DEVICE, "online", true);
+
+  // Retained, so "what is the panel running?" is answerable from the broker at
+  // any time - including while the panel is unplugged, which is exactly when
+  // you are asking whether it was ever flashed with the current build.
+  char info[128];
+  snprintf(info, sizeof(info), "{\"build\":\"%s\",\"panel\":\"%s\"}", FW_BUILD,
+#ifdef EPD_PANEL_UC8176
+           "UC8176"
+#else
+           "SSD1683"
+#endif
+  );
+  mqtt.publish(TOPIC_DEVICE_INFO, info, true);
+
   mqtt.subscribe(TOPIC_STATE);
   mqtt.subscribe(TOPIC_BRIDGE);
   Serial.println("[mqtt] connected and subscribed");
@@ -164,6 +178,9 @@ void setup() {
   Serial.begin(115200);
   delay(2000); // let the S3's USB CDC port enumerate
   Serial.println("\n=== Claude Code e-Paper display ===");
+  // First line after the banner: a serial log pasted into a bug report should
+  // say which build produced it without anyone having to ask.
+  Serial.printf("[fw] build %s\n", FW_BUILD);
   bootMs = millis();
 
   uiBegin();

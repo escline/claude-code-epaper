@@ -32,6 +32,18 @@
 #define TOPIC_STATE "claude/display/state"   // retained snapshot from bridge
 #define TOPIC_BRIDGE "claude/display/bridge" // bridge LWT: "online" / "offline"
 #define TOPIC_DEVICE "claude/display/device" // our own LWT
+// Retained build stamp, published once per connect. Separate from TOPIC_DEVICE
+// so that stays a plain online/offline marker matching the last will - and
+// retained so `bridge.js status` can read what the panel is running without the
+// panel being awake for the question.
+#define TOPIC_DEVICE_INFO "claude/display/device/info"
+
+// Set by scripts/build_stamp.py from the git short SHA. Defined here as well so
+// the paneltest env, which doesn't run that script, still compiles.
+#ifndef FW_GIT_SHA
+#define FW_GIT_SHA "unstamped"
+#endif
+#define FW_BUILD FW_GIT_SHA " " __DATE__ " " __TIME__
 
 // ===========================================================================
 // Refresh policy

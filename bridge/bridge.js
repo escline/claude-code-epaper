@@ -36,7 +36,15 @@ const LOG_PATH = process.env.EPAPER_BRIDGE_LOG || path.join(__dirname, 'bridge.l
 function loadConfig() {
   const defaults = {
     mqtt: { url: 'mqtt://127.0.0.1:1883', username: '', password: '' },
-    topics: { state: 'claude/display/state', bridge: 'claude/display/bridge' },
+    // device/deviceInfo are published by the ESP32, not by us: its own
+    // online/offline marker, and the retained build stamp behind
+    // `status` and the Panel Firmware entity.
+    topics: {
+      state: 'claude/display/state',
+      bridge: 'claude/display/bridge',
+      device: 'claude/display/device',
+      deviceInfo: 'claude/display/device/info',
+    },
     port: 8787,
     idleAfterMs: 300000,
     sessionTtlMs: 28800000,
@@ -287,6 +295,18 @@ const HA_ENTITIES = [
     category: 'diagnostic',
   },
   {
+    // The panel's own, so it reads from the ESP32's retained stamp and follows
+    // the panel's availability rather than the bridge's - a bridge that is up
+    // says nothing about whether the display is plugged in.
+    id: 'panel_firmware',
+    name: 'Panel Firmware',
+    topic: 'deviceInfo',
+    availability: 'device',
+    tpl: "{{ value_json.build | default('unknown') }}",
+    icon: 'mdi:chip',
+    category: 'diagnostic',
+  },
+  {
     kind: 'binary_sensor',
     id: 'needs_attention',
     name: 'Needs Attention',
@@ -318,9 +338,9 @@ function haDiscoveryMessages(cfg) {
     payload: JSON.stringify({
       name: e.name,
       unique_id: `${node}_${e.id}`,
-      state_topic: cfg.topics.state,
+      state_topic: e.topic ? cfg.topics[e.topic] : cfg.topics.state,
       value_template: e.tpl,
-      availability_topic: cfg.topics.bridge,
+      availability_topic: e.availability ? cfg.topics[e.availability] : cfg.topics.bridge,
       payload_available: 'online',
       payload_not_available: 'offline',
       device,
@@ -1117,6 +1137,46 @@ async function runDiscovery(remove) {
   });
 }
 
+// Read the panel's own retained topics. Both are published by the ESP32, so a
+// timeout here means the panel has never connected to this broker - not that it
+// is currently off, since retained messages outlive the publisher.
+function readPanelTopics(cfg, ms = 2000) {
+  return new Promise((resolve) => {
+    const out = {};
+    let client;
+    const done = () => {
+      try {
+        client.end(true);
+      } catch {}
+      resolve(out);
+    };
+    try {
+      client = require('mqtt').connect(cfg.mqtt.url, {
+        username: cfg.mqtt.username || undefined,
+        password: cfg.mqtt.password || undefined,
+        clientId: `claude-epaper-status-${process.pid}`,
+        connectTimeout: ms,
+        reconnectPeriod: 0,
+      });
+    } catch {
+      return resolve(out);
+    }
+    client.on('error', done);
+    client.on('connect', () => client.subscribe([cfg.topics.device, cfg.topics.deviceInfo]));
+    client.on('message', (t, p) => {
+      if (t === cfg.topics.device) out.state = p.toString();
+      if (t === cfg.topics.deviceInfo) {
+        try {
+          out.info = JSON.parse(p.toString());
+        } catch {}
+      }
+    });
+    // Retained messages arrive immediately after SUBACK or not at all, so this
+    // is a settle window rather than a real wait.
+    setTimeout(done, ms);
+  });
+}
+
 async function runStatus() {
   const cfg = loadConfig();
   console.log(`config:  ${fs.existsSync(CONFIG_PATH) ? CONFIG_PATH : 'MISSING (using defaults)'}`);
@@ -1166,6 +1226,31 @@ async function runStatus() {
     } catch (e) {
       console.log(`desktop: ${file} unavailable (${e.message})`);
     }
+  }
+
+  const panel = await readPanelTopics(cfg);
+  if (!panel.info && !panel.state) {
+    console.log('panel:   nothing retained - it has never connected to this broker');
+  } else {
+    const build = panel.info ? panel.info.build : 'unknown build (firmware predates the stamp)';
+    console.log(`panel:   ${panel.state || 'unknown'}, ${build}` +
+      (panel.info && panel.info.panel ? ` (${panel.info.panel})` : ''));
+    // The comparison the stamp exists for. Only meaningful in a checkout, and
+    // only exact when the tree is clean.
+    try {
+      const head = require('child_process')
+        .execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+      if (panel.info && panel.info.build) {
+        const flashed = panel.info.build.split(' ')[0].replace('-dirty', '');
+        console.log(
+          flashed === head
+            ? `panel:   up to date with HEAD (${head})`
+            : `panel:   HEAD is ${head} - the panel is running ${flashed}, reflash it`
+        );
+      }
+    } catch {}
   }
 }
 
