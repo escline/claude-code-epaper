@@ -37,6 +37,7 @@ function loadConfig() {
     port: 8787,
     idleAfterMs: 300000,
     sessionTtlMs: 28800000,
+    planUsage: { enabled: true, path: '', pollMs: 60000, freshMs: 900000 },
   };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -45,10 +46,64 @@ function loadConfig() {
       ...raw,
       mqtt: { ...defaults.mqtt, ...(raw.mqtt || {}) },
       topics: { ...defaults.topics, ...(raw.topics || {}) },
+      planUsage: { ...defaults.planUsage, ...(raw.planUsage || {}) },
     };
   } catch {
     return defaults;
   }
+}
+
+// --------------------------------------------------------------------------
+// Claude desktop app plan usage
+//
+// The desktop app polls the account's plan limits every 5 minutes and appends
+// the result to plan-usage-history.json, pruned to about two weeks:
+//
+//   {"t": 1785546766000, "org": "...", "u": {"fh": 4, "sd": 1}}
+//
+// `fh` and `sd` are the same five-hour and seven-day percentages Claude Code
+// reports through rate_limits, and they are account-wide - desktop, web, mobile
+// and Claude Code all draw on one quota. Reading this is what keeps the gauges
+// honest when Claude Code isn't the thing burning the tokens. A third key `xu`
+// shows up on a slower poll with a different scale; it is deliberately ignored
+// rather than guessed at.
+//
+// Only the file's own last sample matters, so it is re-read on mtime change,
+// not on a timer.
+// --------------------------------------------------------------------------
+function defaultPlanUsagePath() {
+  if (process.platform === 'win32') {
+    const appdata = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appdata, 'Claude', 'plan-usage-history.json');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(
+      os.homedir(),
+      'Library',
+      'Application Support',
+      'Claude',
+      'plan-usage-history.json'
+    );
+  }
+  return path.join(os.homedir(), '.config', 'Claude', 'plan-usage-history.json');
+}
+
+// Newest sample carrying usage numbers, or null. Never throws: the file belongs
+// to another application and may be half-written, absent, or reformatted.
+function readLatestPlanSample(file) {
+  const raw = fs.readFileSync(file, 'utf8');
+  const doc = JSON.parse(raw);
+  const samples = Array.isArray(doc) ? doc : doc.samples;
+  if (!Array.isArray(samples)) return null;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const s = samples[i];
+    if (!s || typeof s.t !== 'number' || !s.u) continue;
+    const fh = typeof s.u.fh === 'number' ? s.u.fh : null;
+    const sd = typeof s.u.sd === 'number' ? s.u.sd : null;
+    if (fh === null && sd === null) continue;
+    return { t: s.t, fh, sd };
+  }
+  return null;
 }
 
 // --------------------------------------------------------------------------
@@ -144,6 +199,16 @@ const HA_ENTITIES = [
     name: 'Project',
     tpl: "{{ value_json.project | default('') }}",
     icon: 'mdi:folder',
+    category: 'diagnostic',
+  },
+  {
+    // Which surface last moved the gauges: 'claude_code' or 'desktop'. The
+    // percentages are account-wide either way, so this only answers "why did
+    // usage change while I wasn't in a terminal".
+    id: 'usage_source',
+    name: 'Usage Source',
+    tpl: "{{ value_json.usage_source | default('unknown') }}",
+    icon: 'mdi:transit-connection-variant',
     category: 'diagnostic',
   },
   {
@@ -293,10 +358,24 @@ function runDaemon() {
   const liveSessions = new Map();
   let lastEventAt = Date.now();
 
+  // Last prompt text, so PostToolUse can put it back after a permission prompt
+  // has been answered instead of leaving the answered question on the panel.
+  let promptDetail = '';
+
   // demo mode may pin the session count, so the panel's weather screen can be
   // exercised without closing every terminal first. null = not pinned, which
   // is the only state any real event can leave it in.
   let demoSessions = null;
+
+  // Desktop-app usage watcher. lastRateLimitAt is when Claude Code last
+  // reported rate limits: the two sources describe the same account, so the
+  // more recently observed one wins rather than whichever arrived last.
+  const planUsageFile = cfg.planUsage.path || defaultPlanUsagePath();
+  let planUsageMtime = 0;
+  let planSampleT = 0; // `t` of the newest sample already consumed
+  let planPrev = null; // its {fh, sd}, for detecting a rise
+  let lastRateLimitAt = 0;
+  const ACTIVE_ELSEWHERE = 'active in another Claude app';
 
   // Created only after we win the port, below. A daemon that loses the race
   // must never open an MQTT session: exiting would drop the connection without
@@ -324,6 +403,18 @@ function runDaemon() {
     // broker, and the panel would sit on a stale IDLE forever instead of
     // handing the screen to the weather. Nothing was retained means nothing to
     // clobber, so this is safe on a fresh broker too.
+    //
+    // Same reason the desktop file is read here rather than waiting out the
+    // first poll interval: a daemon started at login with Claude Code closed
+    // should come up with usage the desktop app already knows, not a minute of
+    // whatever the broker was still holding.
+    if (cfg.planUsage.enabled) {
+      try {
+        pollPlanUsage();
+      } catch (e) {
+        log(`plan usage seed failed: ${e.message}`);
+      }
+    }
     publish();
   }
 
@@ -414,6 +505,12 @@ function runDaemon() {
         resets_at: rl.seven_day.resets_at ?? 0,
       };
     }
+    // Live and exact, and it carries reset times the desktop file has no field
+    // for, so it outranks any desktop sample older than this moment.
+    if (rl.five_hour || rl.seven_day) {
+      lastRateLimitAt = Date.now();
+      state.usage_source = 'claude_code';
+    }
 
     const cw = d.context_window || {};
     if (cw.used_percentage != null) {
@@ -445,12 +542,32 @@ function runDaemon() {
 
       case 'UserPromptSubmit':
         state.status = 'working';
-        state.detail = shorten(d.user_prompt ?? d.prompt ?? '');
+        promptDetail = shorten(d.user_prompt ?? d.prompt ?? '');
+        state.detail = promptDetail;
         break;
 
       case 'PreToolUse':
         state.status = 'working';
         state.detail = d.tool_name ? `running ${d.tool_name}` : 'working';
+        break;
+
+      case 'PostToolUse':
+        // The one event that fires between an approved permission prompt and
+        // the end of the turn. Without it NEEDS YOU stays on the panel for the
+        // whole remainder of the work - 90 s in one logged trace - because
+        // nothing else arrives until Stop.
+        //
+        // Deliberately reports neither the tool nor a fresh detail line when
+        // already working: the status zone repaints as often as every 3 s, and
+        // a line that changed on every tool call would churn it through a heavy
+        // turn for no actionable gain. Returning false here means no publish
+        // and no repaint at all, so the cost of registering this hook is one
+        // repaint per stale banner rather than one per tool.
+        if (state.status === 'working') return false;
+        state.status = 'working';
+        // Back to what you actually asked for, rather than the permission text
+        // that is now answered.
+        state.detail = promptDetail || 'working';
         break;
 
       case 'SubagentStart':
@@ -459,6 +576,16 @@ function runDaemon() {
         break;
 
       case 'Notification':
+        // Values, not just keys: Claude Code sends this both for a permission
+        // prompt and for the idle "waiting for your input" nudge, and only the
+        // first is really NEEDS YOU. Both currently set it, which is suspected
+        // in the repeated notifications seen mid-turn at 30-60 s intervals.
+        // Logging the type is what will tell us whether to stop treating the
+        // idle one as actionable.
+        log(
+          `notification type=${d.notification_type ?? '(absent)'} ` +
+            `message=${JSON.stringify(d.message ?? '')}`
+        );
         // This is the event the whole display exists for.
         state.status = 'needs_you';
         state.detail =
@@ -488,6 +615,94 @@ function runDaemon() {
         return false;
     }
     return true;
+  }
+
+  // Fold the desktop app's latest sample into the gauges. Returns true if the
+  // snapshot changed and should be published.
+  function pollPlanUsage() {
+    let st;
+    try {
+      st = fs.statSync(planUsageFile);
+    } catch {
+      return false; // desktop app never installed, or a different path
+    }
+    const mtime = st.mtimeMs;
+    if (mtime === planUsageMtime) return false;
+    planUsageMtime = mtime;
+
+    let sample;
+    try {
+      sample = readLatestPlanSample(planUsageFile);
+    } catch (e) {
+      log(`plan usage unreadable, ignoring: ${e.message}`);
+      return false;
+    }
+    if (!sample || sample.t <= planSampleT) return false;
+
+    const prev = planPrev;
+    planSampleT = sample.t;
+    planPrev = { fh: sample.fh, sd: sample.sd };
+
+    // A sample only proves what the account looked like when the desktop app
+    // last polled. Once the app is closed the file freezes, and a stale 5-hour
+    // figure would hold the gauge high long after the window had drained.
+    const age = Date.now() - sample.t;
+    if (age > cfg.planUsage.freshMs) return false;
+
+    let changed = false;
+
+    // Claude Code's own numbers are exact and carry reset times; only fill in
+    // behind them.
+    if (sample.t > lastRateLimitAt) {
+      if (sample.fh !== null && state.session.used_pct !== sample.fh) {
+        state.session = { ...state.session, used_pct: sample.fh };
+        changed = true;
+      }
+      if (sample.sd !== null && state.week.used_pct !== sample.sd) {
+        state.week = { ...state.week, used_pct: sample.sd };
+        changed = true;
+      }
+      if (changed) state.usage_source = 'desktop';
+    }
+
+    // Quota that went up with no terminal open was spent somewhere else - the
+    // desktop app, the web UI, a phone. Worth a line, but not a session: there
+    // is no per-message feed behind it, so claiming one would put a status on
+    // the panel that nothing can ever clear. The phrase is fixed rather than a
+    // ticking "5m ago", which would repaint the zone every minute for nothing.
+    const rose =
+      prev &&
+      ((sample.fh !== null && prev.fh !== null && sample.fh > prev.fh) ||
+        (sample.sd !== null && prev.sd !== null && sample.sd > prev.sd));
+
+    if (liveSessions.size === 0 && state.status === 'idle') {
+      const want = rose ? ACTIVE_ELSEWHERE : null;
+      if (want && state.detail !== want) {
+        state.detail = want;
+        changed = true;
+      } else if (!want && state.detail === ACTIVE_ELSEWHERE) {
+        state.detail = 'no active session';
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      log(
+        `plan usage: 5h ${sample.fh}% 7d ${sample.sd}%` +
+          ` (sample ${Math.round(age / 1000)}s old${rose ? ', rose' : ''})`
+      );
+    }
+    return changed;
+  }
+
+  if (cfg.planUsage.enabled) {
+    setInterval(() => {
+      try {
+        if (pollPlanUsage()) publish();
+      } catch (e) {
+        log(`plan usage poll failed: ${e.message}`);
+      }
+    }, cfg.planUsage.pollMs).unref?.();
   }
 
   const server = net.createServer((sock) => {
@@ -713,6 +928,26 @@ async function runStatus() {
   console.log(`topics:  ${cfg.topics.state} , ${cfg.topics.bridge}`);
   const ok = await sendToDaemon(cfg, { kind: 'ping' }, { spawnIfDown: false });
   console.log(`daemon:  ${ok ? `running on 127.0.0.1:${cfg.port}` : 'not running'}`);
+
+  const file = cfg.planUsage.path || defaultPlanUsagePath();
+  if (!cfg.planUsage.enabled) {
+    console.log('desktop: disabled in config');
+  } else {
+    try {
+      const s = readLatestPlanSample(file);
+      if (!s) throw new Error('no usable samples');
+      const age = Math.round((Date.now() - s.t) / 1000);
+      // Older than freshMs means the desktop app is closed, so its numbers are
+      // frozen and the daemon is ignoring them - which is the answer to "why
+      // are the gauges not moving".
+      console.log(
+        `desktop: 5h ${s.fh}% 7d ${s.sd}%, sampled ${age}s ago` +
+          (age * 1000 > cfg.planUsage.freshMs ? ' (stale, app closed - ignored)' : '')
+      );
+    } catch (e) {
+      console.log(`desktop: ${file} unavailable (${e.message})`);
+    }
+  }
 }
 
 // --------------------------------------------------------------------------

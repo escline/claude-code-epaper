@@ -37,6 +37,16 @@ Two independent data sources feed one snapshot:
 - **Hooks** supply the state. `Notification` means Claude is blocked on you,
   `UserPromptSubmit` means work started, `Stop` means it finished,
   `SessionStart`/`SessionEnd` track presence.
+- **The Claude desktop app** supplies usage as a fallback. It records the
+  account's 5-hour and 7-day percentages to `plan-usage-history.json` every five
+  minutes, and the quota is shared across Claude Code, desktop, web and mobile —
+  so the daemon reads that file to keep the gauges true on days you never open a
+  terminal. Claude Code's own numbers outrank it whenever they are more recent,
+  and the file is ignored once its last sample goes stale, since it stops being
+  written the moment the desktop app closes. A rise with no terminal open shows
+  as `active in another Claude app`; it deliberately does not count as a session,
+  because the desktop app exposes no per-message events that could ever clear it.
+  Configure or disable under `planUsage` in `config.json`.
 
 The bridge merges both into one retained MQTT message. Retained matters: an
 ESP32 that reboots gets the correct screen back within a second of reconnecting,
@@ -79,6 +89,13 @@ and a five-day forecast instead.
   the state topic has nothing retained on it at all.
 - **IDLE with `sessions: 0`** — the bridge is up and reports no Claude Code
   session open.
+
+The weather footer still carries the usage numbers, as `5h 42%` / `7d 67%` with
+a proportional bar under each — the same two values the status screen gauges
+show. Since the bridge learned to read the desktop app's plan usage, this screen
+is on the panel exactly when quota can still be moving with no terminal open, so
+the bars are what make that legible from across the room rather than only up
+close.
 
 An IDLE session that is merely waiting on you is *not* one of them. That is a
 state worth showing, and burying it under a forecast would defeat the display.
@@ -216,9 +233,17 @@ Merge the two keys from `docs/claude-settings-snippet.json` into
 to your clone. **Merge, don't replace** — that file has your other settings in
 it, and invalid JSON silently disables all of them.
 
-The snippet deliberately leaves out `PreToolUse`. Adding it shows which tool is
-running, but spawns node before *every* tool call, adding roughly 100 ms each.
-The optional config is at the bottom of the snippet file if you want it.
+`PostToolUse` is in the snippet and is not optional. Nothing else fires between
+an answered permission prompt and the end of the turn, so without it the
+**NEEDS YOU** banner stays up for the entire rest of the work — 90 s in one
+logged trace. It is `async`, and the bridge ignores it while already working, so
+it publishes nothing and repaints nothing except when there is a stale banner to
+clear.
+
+The snippet still leaves out `PreToolUse`. Adding it shows which tool is running,
+but spawns node before *every* tool call, adding roughly 100 ms each, and
+rewrites the detail line often enough to churn the status zone. The optional
+config is at the bottom of the snippet file if you want it.
 
 Restart Claude Code. The status line should appear at the bottom of your
 terminal, and the panel should start tracking.
@@ -326,6 +351,12 @@ The daemon auto-spawns detached. To stop it:
 Its log is `bridge/bridge.log`.
 
 ## Troubleshooting
+
+**Read the banner first.** Until the first snapshot arrives the panel shows only
+a banner — `Starting`, `Connecting` with your SSID, `No WiFi`, `No broker` with
+the host, or `Waiting for Claude Code`. Whichever one it is stuck on names the
+step to chase below. The gauges and footer stay blank until there is something
+real to put in them.
 
 **Nothing happens, no serial output.** The N16R8 needs
 `board_build.arduino.memory_type = qio_opi`; with any other value the board

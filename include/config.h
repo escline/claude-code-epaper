@@ -82,6 +82,9 @@
 
 #define MARGIN 14
 #define BAR_H 18
+// Usage bars in the weather footer. Short enough to sit between the two text
+// rows there, where the status screen's full-width BAR_H would not fit.
+#define MINI_BAR_H 8
 
 // ===========================================================================
 // Weather screen

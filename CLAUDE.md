@@ -84,6 +84,17 @@ fast, it didn't happen.
   says which was used. **Multi-model can't collapse this into one request** —
   `models=a,b` on a `current` block silently returns just one model's values,
   unsuffixed. Only `hourly` returns suffixed per-model keys.
+- **Under the banner the gauge and footer zones paint nothing**, and both of the
+  things that makes necessary are easy to miss. `sigGauge()` hashes `showBanner`
+  first, or an all-unknown snapshot would hash identically to the banner state
+  and the gauges would never be drawn in. And `uiTick()` forces a *full* refresh
+  when the banner clears, the same way it does for a weather-screen swap: the
+  gauge zone is on a 60 s floor, so a partial would leave the middle of the
+  screen blank for up to a minute after the first snapshot had already landed.
+  Empty bars labelled `--` were the previous behaviour and read as a reading of
+  zero rather than as no data yet. A boot checklist was tried here and removed —
+  on a healthy boot the snapshot lands about two seconds after the first paint,
+  so every row was still unticked for the whole time it was visible.
 - **Adafruit GFX fonts stop at ASCII 126**, so there is no `°` glyph. `drawTemp`
   in `src/ui.cpp` draws it as a ring, sized from the font's measured cap height
   rather than a per-font constant.
@@ -104,6 +115,23 @@ fast, it didn't happen.
 - `rate_limits` only exists for Claude.ai Pro/Max accounts and only after the
   first API response in a session. Absent is normal, not an error — the panel
   distinguishes unknown from zero, so don't default these to 0.
+- **The gauges have a second source: the desktop app's
+  `plan-usage-history.json`.** Quota is account-wide — desktop, web, mobile and
+  Claude Code spend from one pool — but `rate_limits` only arrives when Claude
+  Code gets an API response, so a day spent in the desktop app used to leave the
+  gauges frozen at whatever the last terminal saw. The desktop app appends
+  `{"t":…,"u":{"fh":5h%,"sd":7d%}}` every 5 minutes, and `pollPlanUsage()` reads
+  the newest sample on mtime change. Three rules make it safe, and all three are
+  tested in the daemon: **the more recently *observed* source wins** (a sample
+  older than the last `rate_limits` is ignored, which is also how reset times
+  survive — the file has no field for them); **a sample older than `freshMs` is
+  ignored entirely**, because the file freezes when the desktop app closes and a
+  stale 5-hour figure would hold the gauge high long after the window drained;
+  and **a rise never creates a session**, only the `active in another Claude app`
+  detail line, and only when no terminal is open. There is no per-message feed
+  behind desktop activity — its log carries nothing finer than 5-minute polls —
+  so a status set from it could never be cleared. The `xu` key in the same file
+  is on a different poll and a different scale; it is ignored, not guessed at.
 - The daemon auto-spawns detached from the first client call. A second daemon
   losing the port race exits quietly by design.
 - State is published **retained**, with a last-will of `offline`. Both matter:
@@ -122,6 +150,19 @@ fast, it didn't happen.
 - Hook payload field names have drifted from the docs before: `UserPromptSubmit`
   carries `prompt`, not the documented `user_prompt`. `applyHook` logs each
   event's payload keys to `bridge.log` so the next drift is a lookup.
+- **`PostToolUse` is what clears NEEDS YOU, and removing it brings the bug
+  back.** `Notification` sets `needs_you`; with only the other five hooks
+  registered, *nothing* fires between an answered permission prompt and `Stop`,
+  so the banner stayed up for the whole remainder of the turn — 90 s in one
+  logged trace, and the symptom was "it says NEEDS YOU while it's obviously
+  working". The handler returns `false` when already `working`, so a normal turn
+  publishes nothing extra and repaints nothing; the status zone can repaint every
+  3 s, and a detail line naming each tool would churn it all turn for no
+  actionable gain. It restores the last prompt text rather than leaving the
+  answered question on screen. `Notification` now logs `notification_type` and
+  `message` **values**, because Claude Code fires it both for permission prompts
+  and for the idle "waiting for your input" nudge and only the first is really
+  NEEDS YOU — check the log before assuming a repeat is a real prompt.
 - **`sessions` is set inside `publish()` from `liveSessions`, never from the
   seeded snapshot.** The panel uses it to tell "idle, waiting on you" from
   "nothing open" and hand the screen to the weather; a restarted daemon has no

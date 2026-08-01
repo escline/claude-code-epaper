@@ -69,6 +69,9 @@ static bool fullRefreshPending = true;
 static uint32_t lastFullRefresh = 0;
 static uint16_t partialsSinceFull = 0;
 static bool wxOnGlass = false; // which screen the panel is currently showing
+// What the glass currently shows, banner or state. Starts true because the
+// banner is what uiBegin paints first.
+static bool bannerOnGlass = true;
 
 // ---------------------------------------------------------------------------
 // Screen selection
@@ -310,6 +313,12 @@ static void paintGaugeRow(const char *label, const Gauge &g, int16_t labelY,
 }
 
 static void paintGauges() {
+  // Nothing to gauge before the first snapshot. Two empty bars labelled "--"
+  // look like a reading of zero rather than an absence of data, so the banner
+  // gets the screen to itself.
+  if (showBanner)
+    return;
+
   paintGaugeRow("SESSION (5h)", current.session, Z_GAUGE_Y + 18, Z_GAUGE_Y + 24,
                 Z_GAUGE_Y + 60);
   paintGaugeRow("WEEK (7d)", current.week, Z_GAUGE_Y + 84, Z_GAUGE_Y + 90,
@@ -319,6 +328,12 @@ static void paintGauges() {
 static void paintFooter() {
   display.drawFastHLine(MARGIN, Z_FOOTER_Y + 2, SCREEN_W - 2 * MARGIN,
                         GxEPD_BLACK);
+
+  // Model and project are both unknown until the first snapshot lands, and the
+  // rule under the banner is the same as for the gauges: say nothing rather
+  // than render "- | -" as though it meant something.
+  if (showBanner)
+    return;
 
   char line[64];
   const char *model = current.model[0] ? current.model : "-";
@@ -411,6 +426,56 @@ static void paintWxForecast() {
   }
 }
 
+// One usage bar, sized to the width of the label above it.
+static void drawMiniBar(int16_t x, int16_t y, int16_t w, int usedPct) {
+  display.drawRect(x, y, w, MINI_BAR_H, GxEPD_BLACK);
+  if (usedPct <= 0)
+    return;
+  int16_t fill = (int32_t)(w - 2) * usedPct / 100;
+  // The status screen's bar is 372 px wide, so its 1% rounds to 3 px and shows.
+  // These are about 50 px, where anything under 2% floors to nothing and draws
+  // an empty bar - visually identical to 0%, next to a label reading "1%".
+  if (fill < 1)
+    fill = 1;
+  display.fillRect(x + 1, y + 1, fill, MINI_BAR_H - 2, GxEPD_BLACK);
+}
+
+// Compact usage strip: the same two percentages as the status screen gauges,
+// each with a proportional bar beneath it, right-aligned.
+//
+// This screen is what shows when Claude Code is closed, which since the bridge
+// learned to read the desktop app's plan usage is exactly when the quota may
+// still be moving without a terminal open. The digits alone were precise but
+// had to be walked up to and read; the bars are what carry across a room, which
+// is the whole point of the panel.
+static void paintUsageStrip(int16_t textBaseline, int16_t barY) {
+  const bool has5 = current.session.valid;
+  const bool has7 = current.week.valid;
+  if (!has5 && !has7)
+    return;
+
+  char s5[16], s7[16];
+  snprintf(s5, sizeof(s5), "5h %d%%", current.session.usedPct);
+  snprintf(s7, sizeof(s7), "7d %d%%", current.week.usedPct);
+
+  // Advance, not ink width: these are layout boxes a bar has to line up under,
+  // and textWidth would drop the side bearings and leave the bar off its label.
+  const int16_t w5 = has5 ? textAdvance(s5, &FreeSans9pt7b) : 0;
+  const int16_t w7 = has7 ? textAdvance(s7, &FreeSans9pt7b) : 0;
+  const int16_t gap = (has5 && has7) ? 14 : 0;
+
+  int16_t x = SCREEN_W - MARGIN - (w5 + gap + w7);
+  if (has5) {
+    textAt(s5, x, textBaseline, &FreeSans9pt7b);
+    drawMiniBar(x, barY, w5, current.session.usedPct);
+    x += w5 + gap;
+  }
+  if (has7) {
+    textAt(s7, x, textBaseline, &FreeSans9pt7b);
+    drawMiniBar(x, barY, w7, current.week.usedPct);
+  }
+}
+
 static void paintWxFooter() {
   display.drawFastHLine(MARGIN, Z_WX_FOOT_Y + 2, SCREEN_W - 2 * MARGIN,
                         GxEPD_BLACK);
@@ -422,17 +487,7 @@ static void paintWxFooter() {
                         : "no active session";
   textAt(why, MARGIN, Z_WX_FOOT_Y + 24, &FreeSans9pt7b);
 
-  char usage[32];
-  usage[0] = '\0';
-  if (current.session.valid && current.week.valid)
-    snprintf(usage, sizeof(usage), "5h %d%%   7d %d%%", current.session.usedPct,
-             current.week.usedPct);
-  else if (current.session.valid)
-    snprintf(usage, sizeof(usage), "5h %d%%", current.session.usedPct);
-  else if (current.week.valid)
-    snprintf(usage, sizeof(usage), "7d %d%%", current.week.usedPct);
-  if (usage[0])
-    textRight(usage, SCREEN_W - MARGIN, Z_WX_FOOT_Y + 24, &FreeSans9pt7b);
+  paintUsageStrip(Z_WX_FOOT_Y + 24, Z_WX_FOOT_Y + 32);
 
   char upd[40];
   struct tm tmFetch;
@@ -510,6 +565,13 @@ static uint32_t sigGauge() {
   uint32_t h = hashInit();
   char buf[24];
 
+  // The zone is blank under the banner, so this has to be part of the
+  // signature: without it an all-unknown snapshot would hash the same as the
+  // banner state and the gauges would never be drawn in.
+  h = hashInt(h, showBanner ? 1 : 0);
+  if (showBanner)
+    return h;
+
   h = hashInt(h, current.session.valid ? current.session.usedPct : -1);
   h = hashInt(h, current.week.valid ? current.week.usedPct : -1);
 
@@ -526,6 +588,10 @@ static uint32_t sigGauge() {
 
 static uint32_t sigFooter() {
   uint32_t h = hashInit();
+  // Under the banner the footer draws only its rule, and the fields below are
+  // all empty; hashing this keeps the two cases distinct anyway, so clearing
+  // the banner repaints the row even if the first snapshot carries no model.
+  h = hashInt(h, showBanner ? 1 : 0);
   h = hashStr(h, current.model);
   h = hashStr(h, current.project);
   h = hashInt(h, current.hasContext ? current.contextPct : -1);
@@ -566,6 +632,9 @@ static uint32_t sigWxFc() {
 static uint32_t sigWxFoot() {
   uint32_t h = hashInit();
   h = hashInt(h, (int)current.status);
+  // Covers the usage strip's bars as well as its digits: both are derived from
+  // exactly these two values, at whole-percent resolution, so a bar can never
+  // move without the signature moving with it.
   h = hashInt(h, current.session.valid ? current.session.usedPct : -1);
   h = hashInt(h, current.week.valid ? current.week.usedPct : -1);
   // Minute resolution: the footer only prints HH:MM, and fetchedAt only moves
@@ -669,6 +738,16 @@ void uiTick() {
   const bool wx = weatherScreenActive();
   if (wx != wxOnGlass) {
     wxOnGlass = wx;
+    fullRefreshPending = true;
+  }
+
+  // Leaving the banner is the same kind of event: the gauges and footer go from
+  // blank to populated all at once. It also has to be a full refresh rather
+  // than a partial, because the gauge zone is on a 60 s floor - a partial would
+  // leave the middle of the screen empty for up to a minute after the first
+  // snapshot had already landed.
+  if (showBanner != bannerOnGlass) {
+    bannerOnGlass = showBanner;
     fullRefreshPending = true;
   }
 

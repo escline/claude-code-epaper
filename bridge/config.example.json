@@ -14,6 +14,13 @@
   "idleAfterMs": 300000,
   "_comment_session_ttl": "ms after which a session with no traffic is assumed gone (force-kill backstop). Long on purpose: an idle-but-open session is silent, and dropping it early puts the weather screen over a live terminal.",
   "sessionTtlMs": 28800000,
+  "_comment_plan_usage": "Read the Claude desktop app's plan-usage-history.json so the 5h/7d gauges stay current when Claude Code isn't running. The numbers are account-wide (desktop, web, mobile, Code). Empty path = platform default under the Claude app data dir. freshMs: ignore the file's last sample once it is older than this, since it freezes when the desktop app closes.",
+  "planUsage": {
+    "enabled": true,
+    "path": "",
+    "pollMs": 60000,
+    "freshMs": 900000
+  },
   "_comment_ha": "Home Assistant MQTT discovery. discoveryPrefix must match HA's MQTT integration setting (default 'homeassistant').",
   "homeassistant": {
     "enabled": true,

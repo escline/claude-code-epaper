@@ -41,6 +41,19 @@
         ]
       }
     ],
+    "_COMMENT_PostToolUse": "Not optional. Nothing else fires between an answered permission prompt and the end of the turn, so without this the NEEDS YOU banner stays up for the whole remainder of the work. The bridge ignores it while already working - no publish, no repaint - so the cost is one repaint per stale banner, not one per tool. async keeps the node spawn off the critical path.",
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"CLAUDE_EPAPER_PATH/bridge/bridge.js\" hook PostToolUse",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

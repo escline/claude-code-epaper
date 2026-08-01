@@ -16,7 +16,9 @@ void uiSetState(const ClaudeState &s);
 // caller only has to keep this fed.
 void uiSetWeather(const WeatherData &w);
 
-// Show a connection banner before any state has arrived.
+// Show a connection banner before any state has arrived. While it is up the
+// panel shows the banner and nothing else: the gauges and the footer have
+// nothing to report yet, and empty bars read as data rather than as absence.
 void uiSetBanner(const char *line1, const char *line2);
 
 // Call from loop(). Performs any repaint that is due.
