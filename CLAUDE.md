@@ -174,10 +174,15 @@ fast, it didn't happen.
   `message` **values**, because Claude Code fires it both for permission prompts
   and for the idle "waiting for your input" nudge and only the first is really
   NEEDS YOU — check the log before assuming a repeat is a real prompt.
-- **Quitting the desktop app fires no `SessionEnd`** — the process is killed and
-  the hook never runs — so the session used to sit in the map until
-  `sessionTtlMs`, eight hours later, with the panel holding a status screen for
-  a window that had been closed all morning. `pollSessionFiles()` watches
+- **Closing the desktop app's window does not close the session, and that is
+  correct.** It goes to the tray still running; quitting from the tray fires a
+  normal `SessionEnd` (`reason=other`) and the panel hands over to the weather
+  within the settle window. A panel still showing IDLE after you "closed"
+  Claude Code is the display being right — check the tray before debugging the
+  bridge, and `bridge.js status` will name the live instance. What genuinely
+  fires no hook is a force-kill, a crash or a logoff; that is what
+  `pollSessionFiles()` is for, and before it those hung for the full
+  `sessionTtlMs`, eight hours. It watches
   `~/.claude/sessions/<pid>.json`, one file per running instance, carrying the
   `sessionId` and `pid`. **It may only ever end a session, never start one, and
   only one it has already seen a file for** — an empty directory has to stay

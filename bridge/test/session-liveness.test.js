@@ -11,8 +11,8 @@
  * directory is a temp dir this test writes itself, so nothing here depends on
  * a running Claude Code or on the real ~/.claude.
  *
- * The rule being tested is the conservative half of the mechanism. Quitting the
- * desktop app fires no SessionEnd, so a vanished instance file is the only
+ * The rule being tested is the conservative half of the mechanism. A force-kill
+ * or a crash fires no SessionEnd, so a vanished instance file is the only
  * timely evidence the session is over - but an empty directory must never be
  * read as "nothing is running", or a version that stopped writing these files
  * would paint weather over a live terminal. Hence: only a session an instance
@@ -160,7 +160,7 @@ function check(name, ok, detail = '') {
     `sessions=${current().sessions}`);
 
   // ----------------------------------------------------------------------
-  console.log('\n3. the app is quit: file vanishes, no SessionEnd ever fires');
+  console.log('\n3. the instance dies: file vanishes, no SessionEnd ever fires');
   removeInstance(process.pid);
   await settle();
   check('session is expired', current().sessions === 0, `sessions=${current().sessions}`);

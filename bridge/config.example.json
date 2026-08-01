@@ -16,7 +16,7 @@
   "sessionTtlMs": 28800000,
   "_comment_session_grace": "ms a change in the session count must hold before it reaches the panel. The count picks the screen, and each screen swap is a full-panel refresh; the desktop app opens and discards throwaway sessions when it mounts a project view, which without this flashed the status screen up and back.",
   "sessionGraceMs": 10000,
-  "_comment_session_files": "Expire a session as soon as its Claude Code instance is gone, by watching the per-instance files in ~/.claude/sessions. Quitting the desktop app kills the process without firing SessionEnd, so without this the panel holds a closed session for the full sessionTtlMs. Only ever expires a session a file was seen for; anything else keeps the TTL. Empty path = $CLAUDE_CONFIG_DIR/sessions, or ~/.claude/sessions.",
+  "_comment_session_files": "Expire a session as soon as its Claude Code instance is gone, by watching the per-instance files in ~/.claude/sessions. A force-kill, crash or logoff fires no SessionEnd, so without this the panel holds a dead session for the full sessionTtlMs. (Closing the desktop app's window is not that: it keeps running in the tray, and a tray quit fires the hook normally.) Only ever expires a session a file was seen for; anything else keeps the TTL. Empty path = $CLAUDE_CONFIG_DIR/sessions, or ~/.claude/sessions.",
   "sessionFiles": {
     "enabled": true,
     "path": "",

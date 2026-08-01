@@ -117,8 +117,10 @@ zero would have turned a 0.4 s flash into a 10 s one, since it is the
 screen is up, the zones that show status and detail are inactive anyway.
 
 **Knowing a session is over is harder than it sounds.** Exiting the CLI fires
-`SessionEnd`; quitting the desktop app does not — the process is killed and the
-hook never runs. Left at that, a closed app held the panel on a status screen
+`SessionEnd`, and so does quitting the desktop app from the tray — but *closing
+its window* doesn't quit it, and a session that is still running is one the
+panel is right to keep showing. What fires no hook at all is a force-kill, a
+crash or a logoff, and left at that those held the panel on a status screen
 until `sessionTtlMs` expired eight hours later. So the daemon also watches
 `~/.claude/sessions/`, where Claude Code writes one file per running instance
 carrying its `sessionId` and `pid`, and expires a session whose file has

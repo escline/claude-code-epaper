@@ -115,10 +115,15 @@ function readLatestPlanSample(file) {
 // --------------------------------------------------------------------------
 // Session liveness
 //
-// Quitting the desktop app does not fire SessionEnd - the process is killed and
-// the hook never runs - so the daemon used to hold a dead session until
-// sessionTtlMs, eight hours later, and the panel sat on a status screen for a
-// window that had been closed all morning.
+// A force-kill, a crash or a logoff fires no SessionEnd - the process is gone
+// and the hook never runs - so the daemon used to hold a dead session until
+// sessionTtlMs, eight hours later, with the panel sitting on a status screen
+// for something that had stopped existing that morning.
+//
+// Closing the desktop app's window is *not* one of those: it keeps running in
+// the tray with the session genuinely open, and quitting from the tray fires
+// SessionEnd normally. A panel still reading IDLE after the window went away is
+// the display being right.
 //
 // Claude Code writes one file per running instance into ~/.claude/sessions,
 // named for the pid:
