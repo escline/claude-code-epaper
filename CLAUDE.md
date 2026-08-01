@@ -211,10 +211,12 @@ fast, it didn't happen.
   (`reason=other`) and the panel hands over to the weather within the settle
   window. A panel still showing IDLE after you "closed" Claude Code is the
   display being right — check the tray before debugging the bridge, and
-  `bridge.js status` will name the live instance. With that setting off, closing
-  the window quits the app, and the panel is covered either way: a graceful quit
-  fires the hook, and an abrupt one drops the instance file, which
-  `pollSessionFiles()` catches on the next poll. What genuinely
+  `bridge.js status` will name the live instance. **With that setting off,
+  closing the window quits the app gracefully and fires `SessionEnd`
+  (`reason=other`)** — observed 2026-08-01, no expiry line in the log, so the
+  panel swaps on the hook within the settle window exactly as the CLI does.
+  `pollSessionFiles()` never sees it; that stays a backstop for force-kills and
+  crashes. What genuinely
   fires no hook is a force-kill, a crash or a logoff; that is what
   `pollSessionFiles()` is for, and before it those hung for the full
   `sessionTtlMs`, eight hours. It watches
