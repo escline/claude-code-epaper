@@ -12,12 +12,23 @@ pio run -e paneltest                # standalone panel test
 pio run -t upload -t monitor        # flash + serial at 115200
 node bridge/bridge.js status        # broker + daemon health
 node bridge/bridge.js demo          # push a fake state
+npm test --prefix bridge            # bridge test suite, ~40 s
 ```
 
 `pio` is at `~/.platformio/penv/Scripts/pio.exe`. A clean build takes about a
 minute. There is no hardware-in-the-loop test, so **always build both envs
 before reporting a firmware change as done** — compiling is the only automated
-check. For bridge changes, `demo` plus a subscriber is the equivalent.
+check the firmware has. For bridge changes, run the test below; `demo` plus a
+subscriber covers whatever it doesn't.
+
+`bridge/test/session-grace.test.js` is the one automated test: it spawns the
+real `bridge.js` on its own port, topics and log (via `EPAPER_BRIDGE_CONFIG` /
+`EPAPER_BRIDGE_LOG`), feeds it hooks the way Claude Code does, and asserts on
+what comes back off the broker — so it needs a reachable broker and skips
+without one, and it leaves the daemon driving the panel alone. Most of its
+runtime is deliberate waiting on the grace window. Publishing the raw session
+count instead of the settled one fails four of its ten checks, which is the
+check that it is testing anything at all.
 
 **SCons decides staleness by content hash, not timestamp, so `touch` does not
 force a recompile.** A build that "succeeds with no warnings" right after
@@ -163,6 +174,19 @@ fast, it didn't happen.
   `message` **values**, because Claude Code fires it both for permission prompts
   and for the idle "waiting for your input" nudge and only the first is really
   NEEDS YOU — check the log before assuming a repeat is a real prompt.
+- **`sessions` is debounced by `sessionGraceMs`; nothing else in the snapshot
+  is.** The desktop app opens a session when it mounts a project view and ends
+  it under a second later — three in two minutes in one log, no transcript
+  written by any of them — and each one published raw cost two full refreshes
+  and flashed IDLE up over the weather screen. `publish()` sends
+  `publishedSessions`, which follows the live count only once the new value has
+  held for the window. **Mutate the map through `touchSession`/`dropSession`**,
+  or a count change whose event doesn't publish will never arm the settle timer.
+  The delay is symmetric on purpose: holding only the drop to zero turns a 0.4 s
+  flash into a 10 s one, because it is the `SessionStart` that swaps the screen.
+  Nothing else needs it — under the weather screen the status and detail zones
+  are inactive, so that churn paints nothing anyway. `demo` sets
+  `publishedSessions` directly so it stays instant.
 - **`sessions` is set inside `publish()` from `liveSessions`, never from the
   seeded snapshot.** The panel uses it to tell "idle, waiting on you" from
   "nothing open" and hand the screen to the weather; a restarted daemon has no

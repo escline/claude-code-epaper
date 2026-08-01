@@ -7,7 +7,8 @@
   "scripts": {
     "daemon": "node bridge.js daemon",
     "status": "node bridge.js status",
-    "demo": "node bridge.js demo"
+    "demo": "node bridge.js demo",
+    "test": "node test/session-grace.test.js"
   },
   "dependencies": {
     "mqtt": "^5.10.1"

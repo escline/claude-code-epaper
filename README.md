@@ -104,6 +104,18 @@ alongside the rest of the snapshot; it is taken from the daemon's own live map
 on every publish, never from the retained snapshot it seeded from, because a
 restarted daemon has no sessions no matter what the broker still remembers.
 
+That count is also the one field that is *debounced* on its way out, by
+`sessionGraceMs` (10 s). Claude Code in the desktop app opens a session whenever
+it mounts a project view and discards it again — three of them inside two
+minutes in one log, each `SessionStart` answered by a `SessionEnd` under a
+second later, none of which ever wrote a transcript. Published raw, each of
+those cost the panel two full refreshes and read as IDLE flashing up and falling
+straight back to the forecast. So a new count has to hold for the grace window
+before it reaches the snapshot, in both directions: holding only the drop to
+zero would have turned a 0.4 s flash into a 10 s one, since it is the
+`SessionStart` that swaps the screen. Nothing else waits — while the weather
+screen is up, the zones that show status and detail are inactive anyway.
+
 Switching screens forces a full refresh rather than a run of partials — every
 pixel below the header changes, and a full pass is also the cheapest way to
 clear the ghost of the layout being replaced.
@@ -335,6 +347,7 @@ node bridge/bridge.js demo          # push a fake state
 node bridge/bridge.js demo weather  # force the weather screen
 node bridge/bridge.js daemon        # run in foreground to watch it
 node bridge/bridge.js discovery     # republish Home Assistant entities
+npm test --prefix bridge            # bridge test suite (needs the broker)
 ```
 
 Careful with `demo`: it writes fake values to the retained topic, so the panel
@@ -345,6 +358,11 @@ the panel to the weather screen without you having to close every terminal
 first. The forecast itself is not sent from here — the ESP32 fetches it — so
 this only changes whether the panel has something else to show. Plain `demo`
 releases the pin and hands the count back to the live session map.
+
+`npm test` spawns a second daemon on its own port, topics and log, so it can be
+run while the real one is driving the panel. It needs a reachable broker —
+without one it skips rather than fails. Most of its 40 s is spent waiting out
+grace windows.
 
 The daemon auto-spawns detached. To stop it:
 `Get-Process node | Where-Object { $_.CommandLine -like '*bridge.js*' } | Stop-Process`.
@@ -379,8 +397,11 @@ with the reason on the footer line.
 that says nothing is running. Check the serial log for `[wx]` lines — a failed
 GET or an unparseable response is logged there. If fetches are fine, the state
 is the culprit: `node bridge/bridge.js demo weather` forces it, and if that
-works but normal use doesn't, a session is being left open in the daemon's map.
-That is what `sessionTtlMs` exists to clean up, deliberately after 8 hours —
+works but normal use doesn't, a session is being left open in the daemon's map;
+`bridge.log` now records `session start source=` and `session end reason=` for
+every one, so the transcript-less desktop probes are distinguishable from a real
+terminal at a glance. A stuck session is what `sessionTtlMs` exists to clean up,
+deliberately after 8 hours —
 `statusLine` only fires when there is traffic, so a session left open overnight
 is silent but genuinely still open, and pruning it on the idle timescale would
 paint weather over a live terminal.
@@ -429,6 +450,7 @@ There is currently no supported local source, so the display omits it.
 - `src/main.cpp` — WiFi, MQTT, main loop
 - `src/paneltest.cpp` — standalone bring-up test (`-e paneltest`)
 - `bridge/bridge.js` — daemon + statusline/hook clients
+- `bridge/test/` — end-to-end tests against a real daemon and broker
 - `docs/claude-settings-snippet.json` — what to merge into Claude Code settings
 
 ## References

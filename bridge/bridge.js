@@ -24,8 +24,11 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const CONFIG_PATH = path.join(__dirname, 'config.json');
-const LOG_PATH = path.join(__dirname, 'bridge.log');
+// Both overridable so the test harness can run *this* file - not a copy of it -
+// against a throwaway config, its own broker topics and its own log, without
+// touching the daemon that is driving the panel.
+const CONFIG_PATH = process.env.EPAPER_BRIDGE_CONFIG || path.join(__dirname, 'config.json');
+const LOG_PATH = process.env.EPAPER_BRIDGE_LOG || path.join(__dirname, 'bridge.log');
 
 // --------------------------------------------------------------------------
 // Config
@@ -37,6 +40,7 @@ function loadConfig() {
     port: 8787,
     idleAfterMs: 300000,
     sessionTtlMs: 28800000,
+    sessionGraceMs: 10000,
     planUsage: { enabled: true, path: '', pollMs: 60000, freshMs: 900000 },
   };
   try {
@@ -358,14 +362,65 @@ function runDaemon() {
   const liveSessions = new Map();
   let lastEventAt = Date.now();
 
-  // Last prompt text, so PostToolUse can put it back after a permission prompt
-  // has been answered instead of leaving the answered question on the panel.
-  let promptDetail = '';
-
   // demo mode may pin the session count, so the panel's weather screen can be
   // exercised without closing every terminal first. null = not pinned, which
   // is the only state any real event can leave it in.
   let demoSessions = null;
+
+  // The panel swaps between the status and weather screens on the session
+  // count, and each swap costs a full-panel refresh on a display rated for one
+  // per 180 s - so the raw count is too twitchy to publish directly. The
+  // desktop app opens a throwaway session whenever it mounts a project view and
+  // discards it again: three of them inside two minutes in one log, each
+  // SessionStart answered by a SessionEnd under a second later, none of which
+  // ever wrote a transcript. That read on the panel as IDLE flashing up and
+  // falling straight back to weather.
+  //
+  // So the published count follows the live one only once the new value has
+  // held for graceMs. Deliberately symmetric: holding just the drop to zero
+  // would have turned a 0.4 s flash into a 10 s one, since it is the
+  // SessionStart that swaps the screen. Everything else in the snapshot still
+  // publishes immediately - while the weather screen is up its zones are
+  // inactive, so status and detail churn behind it paints nothing anyway, and
+  // this is the one field that decides which screen is even on.
+  let publishedSessions = 0;
+  let sessionSettleTimer = null;
+
+  function sessionCount() {
+    return demoSessions ?? liveSessions.size;
+  }
+
+  function noteSessionChange() {
+    if (sessionCount() === publishedSessions) {
+      // Bounced back to what the panel already shows - a probe opening and
+      // closing - so there was never anything to repaint.
+      clearTimeout(sessionSettleTimer);
+      sessionSettleTimer = null;
+      return;
+    }
+    if (sessionSettleTimer) return; // already waiting; it will read the count then
+    sessionSettleTimer = setTimeout(() => {
+      sessionSettleTimer = null;
+      if (sessionCount() === publishedSessions) return;
+      publishedSessions = sessionCount();
+      publish();
+    }, cfg.sessionGraceMs);
+  }
+
+  function touchSession(sid) {
+    if (!sid) return;
+    const had = liveSessions.has(sid);
+    liveSessions.set(sid, Date.now());
+    if (!had) noteSessionChange();
+  }
+
+  function dropSession(sid) {
+    if (liveSessions.delete(sid)) noteSessionChange();
+  }
+
+  // Last prompt text, so PostToolUse can put it back after a permission prompt
+  // has been answered instead of leaving the answered question on the panel.
+  let promptDetail = '';
 
   // Desktop-app usage watcher. lastRateLimitAt is when Claude Code last
   // reported rate limits: the two sources describe the same account, so the
@@ -476,8 +531,10 @@ function runDaemon() {
       // Always from our own live map, never from the seeded snapshot: a
       // restarted daemon has no sessions no matter what the retained payload
       // claimed, and the panel uses this to decide whether to show weather
-      // instead of a status it would be inventing.
-      state.sessions = demoSessions ?? liveSessions.size;
+      // instead of a status it would be inventing. The settled value, not the
+      // raw one, so a session that opens and closes inside graceMs never
+      // reaches the panel.
+      state.sessions = publishedSessions;
       const json = JSON.stringify(state);
       // Retained, so a rebooting ESP32 repaints correct state immediately.
       client.publish(cfg.topics.state, json, { retain: true, qos: 0 });
@@ -485,7 +542,7 @@ function runDaemon() {
   }
 
   function applyStatusline(d) {
-    if (d.session_id) liveSessions.set(d.session_id, Date.now());
+    touchSession(d.session_id);
 
     if (d.model && d.model.display_name) state.model = d.model.display_name;
     if (d.workspace && d.workspace.current_dir) {
@@ -526,7 +583,7 @@ function runDaemon() {
 
   function applyHook(event, d) {
     const sid = d.session_id;
-    if (sid) liveSessions.set(sid, Date.now());
+    touchSession(sid);
     if (d.cwd) state.project = basename(d.cwd);
 
     // Hook payload field names have drifted before. These events are low
@@ -536,6 +593,12 @@ function runDaemon() {
 
     switch (event) {
       case 'SessionStart':
+        // The value, not just the key, for the same reason Notification logs
+        // its type: 'startup' and 'resume' are a person opening Claude Code,
+        // and the desktop app's discarded probes are indistinguishable from
+        // them at the keys level. Pair this with the SessionEnd reason below to
+        // tell a real session from a 300 ms one.
+        log(`session start source=${d.source ?? '(absent)'}`);
         state.status = 'idle';
         state.detail = 'session started';
         break;
@@ -600,7 +663,8 @@ function runDaemon() {
         break;
 
       case 'SessionEnd':
-        if (sid) liveSessions.delete(sid);
+        log(`session end reason=${d.reason ?? '(absent)'}`);
+        dropSession(sid);
         // Not 'offline': with an always-on bridge, OFFLINE should mean the
         // bridge itself is gone. Closing Claude Code just means no session,
         // and the usage gauges stay meaningful and on screen.
@@ -729,6 +793,11 @@ function runDaemon() {
             // the live map, so a plain `demo` undoes a `demo weather`.
             if ('sessions' in d) demoSessions = d.sessions;
             Object.assign(state, d);
+            // demo exists to put a screen up now, so it skips the settle delay
+            // rather than making anyone wait graceMs to see the panel react.
+            clearTimeout(sessionSettleTimer);
+            sessionSettleTimer = null;
+            publishedSessions = sessionCount();
             publish();
           }
         } catch (e) {
@@ -774,7 +843,7 @@ function runDaemon() {
     let pruned = 0;
     for (const [sid, seenAt] of liveSessions) {
       if (seenAt < cutoff) {
-        liveSessions.delete(sid);
+        dropSession(sid);
         pruned++;
       }
     }
