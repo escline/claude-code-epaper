@@ -22,7 +22,7 @@
     "path": "",
     "pollMs": 15000
   },
-  "_comment_plan_usage": "Read the Claude desktop app's plan-usage-history.json so the 5h/7d gauges stay current when Claude Code isn't running. The numbers are account-wide (desktop, web, mobile, Code). Empty path = platform default under the Claude app data dir. freshMs: ignore the file's last sample once it is older than this, since the file freezes whenever the app stops polling - closing it does that, and so does switching to the Claude Code view.",
+  "_comment_plan_usage": "Read the Claude desktop app's plan-usage-history.json so the 5h/7d gauges stay current when Claude Code isn't running. The numbers are account-wide (desktop, web, mobile, Code). Empty path = platform default under the Claude app data dir. freshMs: ignore the file's last sample once it is older than this, since the file freezes whenever the app stops polling, which it does for reasons beyond being closed - it has been seen going quiet for an hour with the app running normally.",
   "planUsage": {
     "enabled": true,
     "path": "",

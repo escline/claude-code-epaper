@@ -800,10 +800,11 @@ function runDaemon() {
 
     // A sample only proves what the account looked like when the desktop app
     // last polled, and it stops polling for more reasons than being closed -
-    // observed parking itself within ten minutes of switching to the Claude
-    // Code view, with the app still running. Either way the file freezes, and a
-    // stale 5-hour figure would hold the gauge high long after the window had
-    // drained, so age is what matters and the cause is not worth guessing at.
+    // observed going quiet two samples after an app restart and staying quiet
+    // for an hour while the app ran normally. Whatever the cause, the file
+    // freezes, and a stale 5-hour figure would hold the gauge high long after
+    // the window had drained. Age is what matters; the cause is not worth
+    // guessing at, and guessing at it has been wrong twice.
     const age = Date.now() - sample.t;
     if (age > cfg.planUsage.freshMs) return false;
 

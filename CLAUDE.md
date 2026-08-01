@@ -149,11 +149,13 @@ fast, it didn't happen.
   older than the last `rate_limits` is ignored, which is also how reset times
   survive — the file has no field for them); **a sample older than `freshMs` is
   ignored entirely**, because the file freezes whenever the desktop app stops
-  polling — closing it does that, and so does simply switching to the Claude
-  Code view, which parks the chat renderer the poller lives in (observed: two
-  samples after a restart, then nothing for half an hour while the app ran
-  normally). A stale 5-hour figure would otherwise hold the gauge high long
-  after the window drained;
+  polling, and it stops for more reasons than being closed. Observed on
+  2026-08-01: two samples after an app restart, then nothing for an hour while
+  the app ran normally, across several view switches — a parked chat renderer
+  was the obvious theory and putting the chat view in the foreground for two
+  poll intervals disproved it. Treat the cause as unknown and the age as the
+  only thing worth reading. A stale 5-hour figure would otherwise hold the gauge
+  high long after the window drained;
   and **a rise never creates a session**, only the `active in another Claude app`
   detail line, and only when no terminal is open. There is no per-message feed
   behind desktop activity — its log carries nothing finer than 5-minute polls —
@@ -190,6 +192,14 @@ fast, it didn't happen.
   `message` **values**, because Claude Code fires it both for permission prompts
   and for the idle "waiting for your input" nudge and only the first is really
   NEEDS YOU — check the log before assuming a repeat is a real prompt.
+- **In the desktop app the session follows the *view*, not the app.** Switching
+  from the Claude Code view to the chat view fires a real `SessionEnd`
+  (`reason=other`) and switching back fires `SessionStart` with
+  `source=resume`, so the panel hands over to the weather while you are reading
+  a chat and comes back when you return — each swap a full refresh, arriving one
+  `sessionGraceMs` after you move. That is the display being accurate: the
+  session really did end. Don't debug it as a bug, and don't lengthen the grace
+  window to hide it — the count is right and the screens are right.
 - **Closing the desktop app's window does not close the session, and that is
   correct.** It goes to the tray still running; quitting from the tray fires a
   normal `SessionEnd` (`reason=other`) and the panel hands over to the weather

@@ -116,6 +116,12 @@ zero would have turned a 0.4 s flash into a 10 s one, since it is the
 `SessionStart` that swaps the screen. Nothing else waits — while the weather
 screen is up, the zones that show status and detail are inactive anyway.
 
+In the desktop app the session belongs to the *view*, not the window: switching
+from Claude Code to a chat ends it, and switching back resumes it. So the panel
+shows the forecast while you are reading a chat and returns to the status screen
+when you go back to your terminal — a few seconds behind you each way, and
+correct both times.
+
 **Knowing a session is over is harder than it sounds.** Exiting the CLI fires
 `SessionEnd`, and so does quitting the desktop app from the tray — but *closing
 its window* doesn't quit it, and a session that is still running is one the
